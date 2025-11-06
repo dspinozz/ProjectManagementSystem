@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: projectmanagement-api
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/projectmanagement.db
+      - Database__Provider=Sqlite
+      - JwtSettings__SecretKey=${JWT_SECRET_KEY:-YourSuperSecretKeyThatIsAtLeast32CharactersLong!}
+      - JwtSettings__Issuer=ProjectManagementSystem
+      - JwtSettings__Audience=ProjectManagementSystem
+      - JwtSettings__ExpirationMinutes=60
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
