@@ -15,6 +15,7 @@ public class ProjectDto
     public DateTime? UpdatedAt { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    public List<MemberDto> Members { get; set; } = new();
 }
 
 // Request DTO - matches API CreateProjectRequestDto

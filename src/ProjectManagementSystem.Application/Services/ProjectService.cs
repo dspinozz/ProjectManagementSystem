@@ -12,6 +12,14 @@ public interface IProjectService
     Task<Project> CreateAsync(Project project, string userId);
     Task<Project> UpdateAsync(Project project, string userId);
     Task<bool> DeleteAsync(Guid id, string userId);
+    
+    // Member management
+    Task<IEnumerable<ProjectMember>> GetProjectMembersAsync(Guid projectId);
+    Task<ProjectMember> AddMemberAsync(Guid projectId, string userId, ProjectRole role, string addedByUserId);
+    Task<bool> RemoveMemberAsync(Guid projectId, string userId, string removedByUserId);
+    Task<ProjectMember> UpdateMemberRoleAsync(Guid projectId, string userId, ProjectRole newRole, string updatedByUserId);
+    Task<bool> IsUserProjectMemberAsync(Guid projectId, string userId);
+    Task<ProjectRole?> GetUserProjectRoleAsync(Guid projectId, string userId);
 }
 
 public class ProjectService : IProjectService
@@ -74,6 +82,27 @@ public class ProjectService : IProjectService
 
         _context.Projects.Add(project);
         await _context.SaveChangesAsync();
+
+        // Automatically add creator as ProjectManager
+        try
+        {
+            var creatorMember = new ProjectMember
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                UserId = userId,
+                Role = ProjectRole.ProjectManager,
+                JoinedAt = DateTime.UtcNow
+            };
+            _context.ProjectMembers.Add(creatorMember);
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Project creator added as member: {ProjectId}, User: {UserId}", project.Id, userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to add project creator as member: {ProjectId}, User: {UserId}", project.Id, userId);
+            // Don't fail project creation if member addition fails
+        }
 
         await _auditService.LogAsync(
             nameof(Project),
@@ -175,6 +204,149 @@ public class ProjectService : IProjectService
 
         _logger.LogInformation("Project deleted: {ProjectId} by {UserId}", id, userId);
         return true;
+    }
+
+    public async Task<IEnumerable<ProjectMember>> GetProjectMembersAsync(Guid projectId)
+    {
+        return await _context.ProjectMembers
+            .Include(m => m.User)
+            .Include(m => m.Project)
+            .Where(m => m.ProjectId == projectId)
+            .ToListAsync();
+    }
+
+    public async Task<ProjectMember> AddMemberAsync(Guid projectId, string userId, ProjectRole role, string addedByUserId)
+    {
+        // Verify project exists
+        var project = await _context.Projects.FindAsync(projectId);
+        if (project == null)
+        {
+            throw new KeyNotFoundException($"Project with ID {projectId} not found");
+        }
+
+        // Verify user exists
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            throw new KeyNotFoundException($"User with ID {userId} not found");
+        }
+
+        // Check if member already exists
+        var existingMember = await _context.ProjectMembers
+            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId);
+        
+        if (existingMember != null)
+        {
+            throw new InvalidOperationException($"User {userId} is already a member of project {projectId}");
+        }
+
+        var member = new ProjectMember
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = projectId,
+            UserId = userId,
+            Role = role,
+            JoinedAt = DateTime.UtcNow
+        };
+
+        _context.ProjectMembers.Add(member);
+        await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            nameof(ProjectMember),
+            member.Id,
+            "Create",
+            addedByUserId,
+            null,
+            $"Added member {user.Email} to project {project.Name} with role {role}",
+            null
+        );
+
+        _logger.LogInformation("Member added to project: {ProjectId}, User: {UserId}, Role: {Role}", projectId, userId, role);
+        
+        return await _context.ProjectMembers
+            .Include(m => m.User)
+            .Include(m => m.Project)
+            .FirstOrDefaultAsync(m => m.Id == member.Id) ?? member;
+    }
+
+    public async Task<bool> RemoveMemberAsync(Guid projectId, string userId, string removedByUserId)
+    {
+        var member = await _context.ProjectMembers
+            .Include(m => m.User)
+            .Include(m => m.Project)
+            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId);
+        
+        if (member == null)
+        {
+            return false;
+        }
+
+        var projectName = member.Project?.Name ?? projectId.ToString();
+        var userEmail = member.User?.Email ?? userId;
+
+        _context.ProjectMembers.Remove(member);
+        await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(
+            nameof(ProjectMember),
+            member.Id,
+            "Delete",
+            removedByUserId,
+            null,
+            $"Removed member {userEmail} from project {projectName}",
+            null
+        );
+
+        _logger.LogInformation("Member removed from project: {ProjectId}, User: {UserId}", projectId, userId);
+        return true;
+    }
+
+    public async Task<ProjectMember> UpdateMemberRoleAsync(Guid projectId, string userId, ProjectRole newRole, string updatedByUserId)
+    {
+        var member = await _context.ProjectMembers
+            .Include(m => m.User)
+            .Include(m => m.Project)
+            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId);
+        
+        if (member == null)
+        {
+            throw new KeyNotFoundException($"Member not found for project {projectId} and user {userId}");
+        }
+
+        var oldRole = member.Role;
+        member.Role = newRole;
+        await _context.SaveChangesAsync();
+
+        var projectName = member.Project?.Name ?? projectId.ToString();
+        var userEmail = member.User?.Email ?? userId;
+
+        await _auditService.LogAsync(
+            nameof(ProjectMember),
+            member.Id,
+            "Update",
+            updatedByUserId,
+            oldRole.ToString(),
+            $"Updated member {userEmail} role in project {projectName} from {oldRole} to {newRole}",
+            newRole.ToString()
+        );
+
+        _logger.LogInformation("Member role updated: {ProjectId}, User: {UserId}, New Role: {Role}", projectId, userId, newRole);
+        return member;
+    }
+
+    public async Task<bool> IsUserProjectMemberAsync(Guid projectId, string userId)
+    {
+        return await _context.ProjectMembers
+            .AnyAsync(m => m.ProjectId == projectId && m.UserId == userId);
+    }
+
+    public async Task<ProjectRole?> GetUserProjectRoleAsync(Guid projectId, string userId)
+    {
+        var member = await _context.ProjectMembers
+            .FirstOrDefaultAsync(m => m.ProjectId == projectId && m.UserId == userId);
+        
+        return member?.Role;
     }
 }
 

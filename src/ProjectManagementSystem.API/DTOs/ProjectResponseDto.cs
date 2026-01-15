@@ -14,6 +14,7 @@ public class ProjectResponseDto
     public DateTime? UpdatedAt { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
+    public List<MemberResponseDto> Members { get; set; } = new();
 }
 
 public class CreateProjectRequestDto

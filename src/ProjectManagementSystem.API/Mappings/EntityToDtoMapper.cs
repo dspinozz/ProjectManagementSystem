@@ -21,7 +21,8 @@ public static class EntityToDtoMapper
             CreatedAt = project.CreatedAt,
             UpdatedAt = project.UpdatedAt,
             StartDate = project.StartDate,
-            EndDate = project.EndDate
+            EndDate = project.EndDate,
+            Members = project.Members?.Select(m => m.ToDto()).ToList() ?? new List<MemberResponseDto>()
         };
     }
 
@@ -89,5 +90,21 @@ public static class EntityToDtoMapper
         entity.Priority = (DomainTaskPriority)dto.Priority;
         entity.AssignedToId = dto.AssignedToId;
         entity.DueDate = dto.DueDate;
+    }
+
+    public static MemberResponseDto ToDto(this ProjectMember member)
+    {
+        return new MemberResponseDto
+        {
+            Id = member.Id.ToString(),
+            ProjectId = member.ProjectId.ToString(),
+            UserId = member.UserId,
+            UserEmail = member.User?.Email ?? string.Empty,
+            UserFirstName = member.User?.FirstName ?? string.Empty,
+            UserLastName = member.User?.LastName ?? string.Empty,
+            Role = (int)member.Role,
+            RoleName = member.Role.ToString(),
+            JoinedAt = member.JoinedAt
+        };
     }
 }

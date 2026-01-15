@@ -1,6 +1,7 @@
 @page "/projects/{ProjectId}"
 @using ProjectManagementSystem.UI.Services
 @using ProjectManagementSystem.UI.Models
+@using ProjectManagementSystem.UI.Components
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @inject IProjectService ProjectService
@@ -155,6 +156,9 @@ else
                 <div class="empty-state">No files uploaded yet.</div>
             }
         </div>
+
+        <!-- Team Members Section -->
+        <ProjectMembers ProjectId="@ProjectId" CanManageMembers="@canManageMembers" OnMemberChanged="@HandleMemberChanged" />
     </div>
 }
 
@@ -282,13 +286,67 @@ else
     private string? errorMessage;
     private string? successMessage;
     private bool isLoading = true;
+    private bool canManageMembers = false;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadProject();
         await LoadTasks();
         await LoadFiles();
+        await CheckMemberPermissions();
         isLoading = false;
+    }
+
+    private async Task CheckMemberPermissions()
+    {
+        try
+        {
+            var user = await AuthService.GetUserAsync();
+            if (user != null && project != null)
+            {
+                // Check if user is admin or project manager (system role)
+                var role = await AuthService.GetUserRoleAsync();
+                
+                // Check system role first - most permissive
+                if (role == "Admin" || role == "ProjectManager")
+                {
+                    canManageMembers = true;
+                    return;
+                }
+                
+                // Check if user is a project member with ProjectManager role
+                if (project.Members != null && project.Members.Any())
+                {
+                    var userMember = project.Members.FirstOrDefault(m => m.UserId == user.Id);
+                    if (userMember != null)
+                    {
+                        // Role 0 = ProjectManager, check both Role enum and RoleName string
+                        canManageMembers = userMember.Role == 0 || 
+                                         (userMember.RoleName != null && 
+                                          (userMember.RoleName.Equals("ProjectManager", StringComparison.OrdinalIgnoreCase) ||
+                                           userMember.RoleName.Equals("Project Manager", StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+                
+                // If user created the project, they should be able to manage (fallback)
+                // This ensures project creators can always manage members
+                if (!canManageMembers && project.CreatedBy == user.Id)
+                {
+                    canManageMembers = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't fail - allow viewing at least
+            Console.WriteLine($"Error checking member permissions: {ex.Message}");
+            canManageMembers = false;
+        }
+    }
+
+    private async Task HandleMemberChanged()
+    {
+        await LoadProject(); // Reload project to get updated members list
     }
 
     private async Task LoadProject()

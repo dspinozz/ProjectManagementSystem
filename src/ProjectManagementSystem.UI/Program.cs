@@ -26,6 +26,8 @@ builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<IMemberService, MemberService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 // Authentication
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();

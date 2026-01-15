@@ -1,0 +1,627 @@
+@using ProjectManagementSystem.UI.Services
+@using ProjectManagementSystem.UI.Models
+@inject IMemberService MemberService
+@inject IUserService UserService
+@inject IAuthService AuthService
+@implements IDisposable
+
+<div class="section">
+    <div class="section-header">
+        <h2>👥 Team Members (@members.Count)</h2>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="btn btn-primary" @onclick="ShowAddMemberModal" disabled="@(!canManageMembers)" title="@(!canManageMembers ? "You don't have permission to add members" : "Add a new team member")" style="min-width: 120px; @(!canManageMembers ? "opacity: 0.6;" : "")">
+                + Add Member
+            </button>
+            @if (!canManageMembers)
+            {
+                <span class="text-muted" style="font-size: 0.75rem; color: #999;">(Requires Project Manager or Admin role)</span>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    @if (isLoading)
+    {
+        <div class="loading">Loading members...</div>
+    }
+    else if (members.Any())
+    {
+        <div class="members-list">
+            @foreach (var member in members)
+            {
+                <div class="member-item">
+                    <div class="member-info">
+                        <div class="member-name">
+                            <strong>@member.UserFirstName @member.UserLastName</strong>
+                            <span class="member-email">@member.UserEmail</span>
+                        </div>
+                        <div class="member-role">
+                            <span class="role-badge role-@member.RoleName.ToLower()">@member.RoleName</span>
+                            <span class="member-joined">Joined @member.JoinedAt.ToString("MMM dd, yyyy")</span>
+                        </div>
+                    </div>
+                    @if (canManageMembers && member.UserId != currentUserId)
+                    {
+                        <div class="member-actions">
+                            <select class="role-select" value="@member.Role.ToString()" @onchange="@((ChangeEventArgs e) => UpdateMemberRole(member, int.Parse(e.Value?.ToString() ?? "1")))">
+                                <option value="0">Project Manager</option>
+                                <option value="1">Team Member</option>
+                                <option value="2">Viewer</option>
+                            </select>
+                            <button class="btn-icon btn-danger-icon" title="Remove" @onclick="() => ShowRemoveMemberConfirm(member)">🗑️</button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty-state">No members added yet.</div>
+    }
+</div>
+
+@* Add Member Modal *@
+@if (showAddMemberModal)
+{
+    <div class="modal-overlay" @onclick="CloseAddMemberModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Add Team Member</h3>
+                <button class="btn-close" @onclick="CloseAddMemberModal">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Search Users</label>
+                    <input type="text" class="form-control" value="@userSearchQuery" @oninput="OnSearchInput" placeholder="Type to search by name or email..." />
+                </div>
+                @if (isSearchingUsers)
+                {
+                    <div class="loading">Searching...</div>
+                }
+                else if (searchResults.Any())
+                {
+                    <div class="user-search-results">
+                        @foreach (var user in searchResults.Where(u => !members.Any(m => m.UserId == u.Id)))
+                        {
+                            <div class="user-search-item" @onclick="() => SelectUser(user)">
+                                <div class="user-info">
+                                    <strong>@user.FullName</strong>
+                                    <span class="user-email">@user.Email</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(userSearchQuery) && !isSearchingUsers)
+                {
+                    <div class="empty-state">No users found.</div>
+                }
+                @if (selectedUser != null)
+                {
+                    <div class="selected-user">
+                        <strong>Selected: @selectedUser.FullName</strong>
+                        <div class="form-group">
+                            <label>Role</label>
+                            <select class="form-control" @bind="selectedRole">
+                                <option value="0">Project Manager</option>
+                                <option value="1">Team Member</option>
+                                <option value="2">Viewer</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" @onclick="AddMember" disabled="@isAddingMember">
+                            @if (isAddingMember)
+                            {
+                                <span>Adding...</span>
+                            }
+                            else
+                            {
+                                <span>Add Member</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@* Remove Member Confirmation Modal *@
+@if (showRemoveConfirm && memberToRemove != null)
+{
+    <div class="modal-overlay" @onclick="CloseRemoveConfirm">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Remove Team Member</h3>
+                <button class="btn-close" @onclick="CloseRemoveConfirm">×</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to remove <strong>@memberToRemove.UserFirstName @memberToRemove.UserLastName</strong> from this project?</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" @onclick="CloseRemoveConfirm">Cancel</button>
+                    <button class="btn btn-danger" @onclick="RemoveMember" disabled="@isRemovingMember">
+                        @if (isRemovingMember)
+                        {
+                            <span>Removing...</span>
+                        }
+                        else
+                        {
+                            <span>Remove</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string ProjectId { get; set; } = string.Empty;
+    [Parameter] public bool CanManageMembers { get; set; } = false;
+    [Parameter] public EventCallback OnMemberChanged { get; set; }
+
+    private List<MemberDto> members = new();
+    private bool isLoading = true;
+    private bool canManageMembers = false;
+    private string? currentUserId;
+
+    // Add member modal
+    private bool showAddMemberModal = false;
+    private string userSearchQuery = string.Empty;
+    private List<UserSearchDto> searchResults = new();
+    private bool isSearchingUsers = false;
+    private UserSearchDto? selectedUser = null;
+    private int selectedRole = 1; // Default to Team Member
+    private bool isAddingMember = false;
+
+    // Remove member confirmation
+    private bool showRemoveConfirm = false;
+    private MemberDto? memberToRemove = null;
+    private bool isRemovingMember = false;
+    private string? errorMessage;
+    private System.Threading.Timer? searchDebounceTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            canManageMembers = CanManageMembers;
+            var currentUser = await AuthService.GetUserAsync();
+            currentUserId = currentUser?.Id;
+            await LoadMembers();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error initializing members: {ex.Message}";
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadMembers()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            members = await MemberService.GetProjectMembersAsync(ProjectId);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            members.Clear();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading members: {ex.Message}";
+            members.Clear();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        userSearchQuery = e.Value?.ToString() ?? string.Empty;
+        _ = SearchUsersAsync();
+    }
+
+    private Task SearchUsersAsync()
+    {
+        // Debounce: clear existing timer
+        searchDebounceTimer?.Dispose();
+        
+        if (string.IsNullOrWhiteSpace(userSearchQuery) || userSearchQuery.Length < 2)
+        {
+            searchResults.Clear();
+            return Task.CompletedTask;
+        }
+
+        // Wait 300ms before searching
+        searchDebounceTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                try
+                {
+                    isSearchingUsers = true;
+                    StateHasChanged();
+                    searchResults = await UserService.SearchUsersAsync(userSearchQuery, pageSize: 10);
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Error searching users: {ex.Message}";
+                    searchResults.Clear();
+                }
+                finally
+                {
+                    isSearchingUsers = false;
+                    StateHasChanged();
+                }
+            });
+        }, null, 300, Timeout.Infinite);
+        
+        return Task.CompletedTask;
+    }
+
+    private Task SearchUsers()
+    {
+        return SearchUsersAsync();
+    }
+
+    private void SelectUser(UserSearchDto user)
+    {
+        selectedUser = user;
+    }
+
+    private async Task AddMember()
+    {
+        if (selectedUser == null) return;
+
+        try
+        {
+            isAddingMember = true;
+            errorMessage = null;
+            var request = new AddMemberRequest
+            {
+                UserId = selectedUser.Id,
+                Role = selectedRole
+            };
+            await MemberService.AddMemberAsync(ProjectId, request);
+            await LoadMembers();
+            await OnMemberChanged.InvokeAsync();
+            CloseAddMemberModal();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (ArgumentException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error adding member: {ex.Message}";
+        }
+        finally
+        {
+            isAddingMember = false;
+        }
+    }
+
+    private async Task UpdateMemberRole(MemberDto member, int newRole)
+    {
+        if (member.Role == newRole) return;
+
+        try
+        {
+            errorMessage = null;
+            var request = new UpdateMemberRoleRequest { Role = newRole };
+            await MemberService.UpdateMemberRoleAsync(ProjectId, member.UserId, request);
+            await LoadMembers();
+            await OnMemberChanged.InvokeAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            await LoadMembers(); // Reload to revert UI
+        }
+        catch (KeyNotFoundException ex)
+        {
+            errorMessage = ex.Message;
+            await LoadMembers(); // Reload to revert UI
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error updating member role: {ex.Message}";
+            await LoadMembers(); // Reload to revert UI
+        }
+    }
+
+    private void ShowRemoveMemberConfirm(MemberDto member)
+    {
+        memberToRemove = member;
+        showRemoveConfirm = true;
+    }
+
+    private async Task RemoveMember()
+    {
+        if (memberToRemove == null) return;
+
+        try
+        {
+            isRemovingMember = true;
+            errorMessage = null;
+            await MemberService.RemoveMemberAsync(ProjectId, memberToRemove.UserId);
+            await LoadMembers();
+            await OnMemberChanged.InvokeAsync();
+            CloseRemoveConfirm();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            CloseRemoveConfirm();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            errorMessage = ex.Message;
+            CloseRemoveConfirm();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error removing member: {ex.Message}";
+            CloseRemoveConfirm();
+        }
+        finally
+        {
+            isRemovingMember = false;
+        }
+    }
+
+    private void ShowAddMemberModal()
+    {
+        if (!canManageMembers)
+        {
+            errorMessage = "You don't have permission to add members. Only Project Managers and Admins can add team members.";
+            StateHasChanged();
+            return;
+        }
+        
+        showAddMemberModal = true;
+        userSearchQuery = string.Empty;
+        searchResults.Clear();
+        selectedUser = null;
+        errorMessage = null;
+    }
+
+    private void CloseAddMemberModal()
+    {
+        showAddMemberModal = false;
+        userSearchQuery = string.Empty;
+        searchResults.Clear();
+        selectedUser = null;
+    }
+
+    private void CloseRemoveConfirm()
+    {
+        showRemoveConfirm = false;
+        memberToRemove = null;
+    }
+
+    public void Dispose()
+    {
+        searchDebounceTimer?.Dispose();
+    }
+}
+
+<style>
+    .members-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .member-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .member-info {
+        flex: 1;
+    }
+
+    .member-name {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .member-email {
+        font-size: 0.875rem;
+        color: #666;
+    }
+
+    .member-role {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .role-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .role-badge.role-projectmanager {
+        background: #6366f1;
+        color: white;
+    }
+
+    .role-badge.role-teammember {
+        background: #10b981;
+        color: white;
+    }
+
+    .role-badge.role-viewer {
+        background: #6b7280;
+        color: white;
+    }
+
+    .member-joined {
+        font-size: 0.875rem;
+        color: #999;
+    }
+
+    .member-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .role-select {
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    .user-search-results {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-top: 1rem;
+    }
+
+    .user-search-item {
+        padding: 0.75rem;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    }
+
+    .user-search-item:hover {
+        background: #f5f5f5;
+    }
+
+    .user-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .selected-user {
+        margin-top: 1rem;
+        padding: 1rem;
+        background: #f5f5f5;
+        border-radius: 4px;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 500px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.5rem;
+        border-bottom: 1px solid #eee;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .btn-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #666;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        margin-top: 1rem;
+    }
+
+    .empty-state {
+        padding: 2rem;
+        text-align: center;
+        color: #999;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .section-header h2 {
+        margin: 0;
+    }
+
+    .btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        pointer-events: auto !important;
+    }
+
+    .btn-primary:disabled {
+        background: #94a3b8 !important;
+        color: white !important;
+        border: 1px solid #94a3b8;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: white;
+        border: none;
+        padding: 0.625rem 1.25rem;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+</style>

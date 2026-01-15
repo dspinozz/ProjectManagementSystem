@@ -1,6 +1,8 @@
 @page "/tasks"
 @using ProjectManagementSystem.UI.Services
 @using ProjectManagementSystem.UI.Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
 @attribute [Authorize]
 
 <PageTitle>Tasks - Project Management System</PageTitle>
@@ -74,12 +76,23 @@
                         </div>
                         <span class="task-count">@columnTasks.Count</span>
                     </div>
-                    <div class="column-body">
+                    <div class="column-body @GetDropZoneClass(status)" 
+                         @ondrop="@((DragEventArgs e) => HandleDrop(e, status))"
+                         @ondragover="@((DragEventArgs e) => HandleDragOver(e, status))"
+                         @ondragover:preventDefault="true"
+                         @ondragenter="@((DragEventArgs e) => HandleDragEnter(e, status))"
+                         @ondragleave="@((DragEventArgs e) => HandleDragLeave(e, status))">
                         @if (columnTasks.Any())
                         {
                             @foreach (var task in columnTasks)
                             {
-                                <div class="task-card @GetPriorityClass(task.Priority)">
+                                <div class="task-card @GetPriorityClass(task.Priority) @(draggedTaskId == task.Id ? "dragging" : "")"
+                                     draggable="true"
+                                     @ondragstart="@((DragEventArgs e) => HandleDragStart(e, task))"
+                                     @ondragend="@((DragEventArgs e) => HandleDragEnd(e))"
+                                     @onmousedown="@((MouseEventArgs e) => { if (e.Button == 0) { /* Prevent text selection on drag start */ } })"
+                                     @onclick="@(() => { if (string.IsNullOrEmpty(draggedTaskId)) ShowTaskDetails(task); })"
+                                     style="cursor: grab; -webkit-user-select: none; user-select: none;">
                                     <div class="card-top">
                                         <span class="priority-indicator @GetPriorityClass(task.Priority)">@GetPriorityName(task.Priority)</span>
                                         @if (task.DueDate.HasValue)
@@ -102,8 +115,8 @@
                         }
                         else
                         {
-                            <div class="column-empty">
-                                <span>No tasks</span>
+                            <div class="column-empty @(dragOverStatus == status && !string.IsNullOrEmpty(draggedTaskId) ? "drag-over" : "")">
+                                <span>@(dragOverStatus == status && !string.IsNullOrEmpty(draggedTaskId) ? "Drop here" : "No tasks")</span>
                             </div>
                         }
                     </div>
@@ -113,19 +126,165 @@
     }
 </div>
 
+@* Task Details Modal *@
+@if (showTaskDetailsModal && selectedTask != null)
+{
+    <div class="modal-overlay" @onclick="CloseTaskDetails" @onkeydown="@((KeyboardEventArgs e) => { if (e.Key == "Escape") CloseTaskDetails(); })" tabindex="0">
+        <div class="modal-content task-details-modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>Task Details</h2>
+                <button class="btn-close" @onclick="CloseTaskDetails">×</button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger">⚠️ @errorMessage</div>
+                }
+                @if (!string.IsNullOrEmpty(successMessage))
+                {
+                    <div class="alert alert-success">✅ @successMessage</div>
+                }
+                
+                <div class="task-detail-section">
+                    <label class="detail-label">Title</label>
+                    <div class="detail-value">@selectedTask.Title</div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(selectedTask.Description))
+                {
+                    <div class="task-detail-section">
+                        <label class="detail-label">Description</label>
+                        <div class="detail-value">@selectedTask.Description</div>
+                    </div>
+                }
+
+                <div class="task-detail-row">
+                    <div class="task-detail-section">
+                        <label class="detail-label">Status</label>
+                        <div class="detail-value">
+                            <span class="status-badge @GetStatusClass(selectedTask.Status)">@GetStatusName(selectedTask.Status)</span>
+                        </div>
+                    </div>
+
+                    <div class="task-detail-section">
+                        <label class="detail-label">Priority</label>
+                        <div class="detail-value">
+                            <span class="priority-badge @GetPriorityClass(selectedTask.Priority)">@GetPriorityName(selectedTask.Priority)</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (selectedTask.DueDate.HasValue)
+                {
+                    <div class="task-detail-section">
+                        <label class="detail-label">Due Date</label>
+                        <div class="detail-value @(selectedTask.DueDate < DateTime.Now ? "overdue" : "")">
+                            @selectedTask.DueDate.Value.ToString("MMMM dd, yyyy")
+                            @if (selectedTask.DueDate < DateTime.Now)
+                            {
+                                <span class="overdue-indicator">⚠️ Overdue</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="task-detail-section">
+                    <label class="detail-label">Created</label>
+                    <div class="detail-value">@selectedTask.CreatedAt.ToString("MMMM dd, yyyy 'at' hh:mm tt")</div>
+                </div>
+
+                @if (selectedTask.UpdatedAt.HasValue)
+                {
+                    <div class="task-detail-section">
+                        <label class="detail-label">Last Updated</label>
+                        <div class="detail-value">@selectedTask.UpdatedAt.Value.ToString("MMMM dd, yyyy 'at' hh:mm tt")</div>
+                    </div>
+                }
+
+                <div class="task-actions">
+                    <h3>Change Status</h3>
+                    <div class="status-buttons">
+                        @if (selectedTask.Status > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="@(() => ChangeTaskStatus(selectedTask.Status - 1))" disabled="@isUpdatingStatus">
+                                @if (isUpdatingStatus)
+                                {
+                                    <span>⏳ Updating...</span>
+                                }
+                                else
+                                {
+                                    <span>← @GetStatusName(selectedTask.Status - 1)</span>
+                                }
+                            </button>
+                        }
+                        @if (selectedTask.Status < 3)
+                        {
+                            <button class="btn btn-primary" @onclick="@(() => ChangeTaskStatus(selectedTask.Status + 1))" disabled="@isUpdatingStatus">
+                                @if (isUpdatingStatus)
+                                {
+                                    <span>⏳ Updating...</span>
+                                }
+                                else
+                                {
+                                    <span>@GetStatusName(selectedTask.Status + 1) →</span>
+                                }
+                            </button>
+                        }
+                        @if (selectedTask.Status == 0)
+                        {
+                            <span class="status-hint">Start by moving to "In Progress"</span>
+                        }
+                        @if (selectedTask.Status == 3)
+                        {
+                            <span class="status-hint">Task is complete!</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Inject] private ITaskService TaskService { get; set; } = null!;
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
 
     private List<TaskDto> tasks = new();
     private bool isLoading = true;
     private string? errorMessage;
     private string statusFilter = "";
     private string priorityFilter = "";
+    
+    // Drag and drop state
+    private string? draggedTaskId = null;
+    private int? dragOverStatus = null;
+    private bool isUpdatingStatus = false;
+    
+    // Task details modal
+    private bool showTaskDetailsModal = false;
+    private TaskDto? selectedTask = null;
+    private string? successMessage = null;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadTasks();
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Add keyboard event listener for ESC key
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                window.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        window.dispatchEvent(new CustomEvent('closeTaskModal'));
+                    }
+                });
+            ");
+        }
+    }
+
 
     private async Task LoadTasks()
     {
@@ -191,6 +350,217 @@
 
     private string TruncateText(string text, int max) =>
         string.IsNullOrEmpty(text) || text.Length <= max ? text : text.Substring(0, max) + "...";
+
+    // Drag and Drop Handlers
+    private void HandleDragStart(DragEventArgs e, TaskDto task)
+    {
+        draggedTaskId = task.Id;
+        // Prevent text selection during drag
+        try
+        {
+            e.DataTransfer.EffectAllowed = "move";
+        }
+        catch
+        {
+            // Some browsers may not support this
+        }
+        StateHasChanged();
+    }
+
+    private void HandleDragEnd(DragEventArgs e)
+    {
+        draggedTaskId = null;
+        dragOverStatus = null;
+        StateHasChanged();
+    }
+
+    private void HandleDragOver(DragEventArgs e, int status)
+    {
+        if (!string.IsNullOrEmpty(draggedTaskId))
+        {
+            dragOverStatus = status;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleDragEnter(DragEventArgs e, int status)
+    {
+        if (!string.IsNullOrEmpty(draggedTaskId))
+        {
+            dragOverStatus = status;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleDragLeave(DragEventArgs e, int status)
+    {
+        // Clear drag over status when leaving the column
+        if (dragOverStatus == status)
+        {
+            dragOverStatus = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleDrop(DragEventArgs e, int newStatus)
+    {
+        if (string.IsNullOrEmpty(draggedTaskId))
+        {
+            return;
+        }
+
+        var task = tasks.FirstOrDefault(t => t.Id == draggedTaskId);
+        if (task == null || task.Status == newStatus)
+        {
+            draggedTaskId = null;
+            dragOverStatus = null;
+            StateHasChanged();
+            return;
+        }
+
+        // Update task status
+        isUpdatingStatus = true;
+        try
+        {
+            var updateRequest = new UpdateTaskRequest
+            {
+                Title = task.Title,
+                Description = task.Description,
+                Status = newStatus,
+                Priority = task.Priority,
+                AssignedToId = task.AssignedToId,
+                DueDate = task.DueDate
+            };
+
+            var success = await TaskService.UpdateTaskAsync(task.Id, updateRequest);
+            if (success)
+            {
+                // Reload tasks to reflect the change
+                await LoadTasks();
+                // Clear any previous error messages
+                errorMessage = null;
+            }
+            else
+            {
+                errorMessage = "Failed to update task status. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error updating task: {ex.Message}";
+        }
+        finally
+        {
+            isUpdatingStatus = false;
+            draggedTaskId = null;
+            dragOverStatus = null;
+            StateHasChanged();
+        }
+    }
+
+    private string GetDropZoneClass(int status)
+    {
+        if (dragOverStatus == status && !string.IsNullOrEmpty(draggedTaskId))
+        {
+            return "drop-zone-active";
+        }
+        return "drop-zone";
+    }
+
+    // Task Details Modal Handlers
+    private void ShowTaskDetails(TaskDto task)
+    {
+        // Don't open modal if we're currently dragging
+        if (!string.IsNullOrEmpty(draggedTaskId))
+        {
+            return;
+        }
+        
+        selectedTask = task;
+        showTaskDetailsModal = true;
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private void CloseTaskDetails()
+    {
+        showTaskDetailsModal = false;
+        selectedTask = null;
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private async Task ChangeTaskStatus(int newStatus)
+    {
+        if (selectedTask == null || selectedTask.Status == newStatus || isUpdatingStatus)
+        {
+            return;
+        }
+
+        // Validate status range
+        if (newStatus < 0 || newStatus > 3)
+        {
+            errorMessage = "Invalid status value";
+            return;
+        }
+
+        isUpdatingStatus = true;
+        errorMessage = null;
+        successMessage = null;
+        
+        try
+        {
+            var updateRequest = new UpdateTaskRequest
+            {
+                Title = selectedTask.Title,
+                Description = selectedTask.Description,
+                Status = newStatus,
+                Priority = selectedTask.Priority,
+                AssignedToId = selectedTask.AssignedToId,
+                DueDate = selectedTask.DueDate
+            };
+
+            var success = await TaskService.UpdateTaskAsync(selectedTask.Id, updateRequest);
+            if (success)
+            {
+                // Show success message
+                successMessage = $"Task moved to '{GetStatusName(newStatus)}'";
+                
+                // Update the selected task's status
+                selectedTask.Status = newStatus;
+                
+                // Reload tasks to reflect the change
+                await LoadTasks();
+                
+                // Update selectedTask reference to match the reloaded task
+                var updatedTask = tasks.FirstOrDefault(t => t.Id == selectedTask.Id);
+                if (updatedTask != null)
+                {
+                    selectedTask = updatedTask;
+                }
+                
+                // Clear success message after 2 seconds
+                _ = Task.Delay(2000).ContinueWith(_ => InvokeAsync(() =>
+                {
+                    successMessage = null;
+                    StateHasChanged();
+                }));
+            }
+            else
+            {
+                errorMessage = "Failed to update task status. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error updating task: {ex.Message}";
+        }
+        finally
+        {
+            isUpdatingStatus = false;
+            StateHasChanged();
+        }
+    }
 }
 
 <style>
@@ -337,6 +707,31 @@
         border-radius: 0 0 10px 10px;
         padding: 0.75rem;
         min-height: 400px;
+        transition: all 0.2s ease;
+    }
+
+    .drop-zone {
+        position: relative;
+    }
+
+    .drop-zone-active {
+        background: #e0e7ff;
+        border-color: #6366f1;
+        border-width: 2px;
+        border-style: dashed;
+    }
+
+    .drop-zone-active::before {
+        content: "Drop here";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #6366f1;
+        font-weight: 600;
+        font-size: 0.875rem;
+        pointer-events: none;
+        z-index: 10;
     }
 
     /* Task Card */
@@ -348,12 +743,63 @@
         border: 1px solid #e2e8f0;
         border-left: 3px solid transparent;
         transition: all 0.2s ease;
-        cursor: pointer;
+        cursor: grab;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .task-card:active {
+        cursor: grabbing;
+    }
+
+    .task-card * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        -webkit-touch-callout: none;
+    }
+
+    .task-card .task-title,
+    .task-card .task-desc,
+    .task-card .card-footer,
+    .task-card .card-top {
+        pointer-events: none;
     }
 
     .task-card:hover {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
         transform: translateY(-1px);
+    }
+
+    .task-card:active {
+        cursor: grabbing;
+    }
+
+    .task-card * {
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        -webkit-touch-callout: none;
+    }
+
+    .task-card .task-title,
+    .task-card .task-desc,
+    .task-card .card-footer,
+    .task-card .card-top {
+        pointer-events: none;
+    }
+
+    .task-card.dragging {
+        opacity: 0.5;
+        transform: rotate(2deg);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
     }
 
     .task-card.priority-low { border-left-color: #94a3b8; }
@@ -427,6 +873,14 @@
         font-size: 0.875rem;
         border: 2px dashed #e2e8f0;
         border-radius: 8px;
+        transition: all 0.2s ease;
+    }
+
+    .column-empty.drag-over {
+        background: #e0e7ff;
+        border-color: #6366f1;
+        color: #6366f1;
+        border-width: 2px;
     }
 
     /* States */
@@ -491,6 +945,12 @@
         border: 1px solid #fecaca;
     }
 
+    .alert-success {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        color: #166534;
+        border: 1px solid #bbf7d0;
+    }
+
     .btn {
         display: inline-flex;
         align-items: center;
@@ -534,6 +994,210 @@
         .filter-stats {
             margin-left: 0;
             margin-top: 0.5rem;
+        }
+    }
+
+    /* Task Details Modal */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .task-details-modal {
+        background: white;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 600px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.5rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .modal-header h2 {
+        margin: 0;
+        font-size: 1.5rem;
+        color: #1e293b;
+    }
+
+    .btn-close {
+        background: none;
+        border: none;
+        font-size: 1.75rem;
+        cursor: pointer;
+        color: #64748b;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+
+    .btn-close:hover {
+        background: #f1f5f9;
+        color: #1e293b;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .task-detail-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .task-detail-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .detail-label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+    }
+
+    .detail-value {
+        font-size: 1rem;
+        color: #1e293b;
+        line-height: 1.5;
+    }
+
+    .status-badge, .priority-badge {
+        display: inline-block;
+        padding: 0.375rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+
+    .status-badge.status-todo {
+        background: #f1f5f9;
+        color: #64748b;
+    }
+
+    .status-badge.status-progress {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .status-badge.status-review {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .status-badge.status-done {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .priority-badge.priority-low {
+        background: #f1f5f9;
+        color: #64748b;
+    }
+
+    .priority-badge.priority-medium {
+        background: #e0e7ff;
+        color: #4338ca;
+    }
+
+    .priority-badge.priority-high {
+        background: #fef3c7;
+        color: #d97706;
+    }
+
+    .priority-badge.priority-critical {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .overdue-indicator {
+        color: #ef4444;
+        font-weight: 600;
+        margin-left: 0.5rem;
+    }
+
+    .task-actions {
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .task-actions h3 {
+        margin: 0 0 1rem 0;
+        font-size: 1.125rem;
+        color: #1e293b;
+    }
+
+    .status-buttons {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .status-buttons .btn {
+        flex: 1;
+        min-width: 150px;
+    }
+
+    .status-hint {
+        color: #64748b;
+        font-size: 0.875rem;
+        font-style: italic;
+    }
+
+    .btn-secondary {
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #e2e8f0;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    @@media (max-width: 640px) {
+        .task-detail-row {
+            grid-template-columns: 1fr;
+        }
+
+        .status-buttons {
+            flex-direction: column;
+        }
+
+        .status-buttons .btn {
+            width: 100%;
         }
     }
 </style>

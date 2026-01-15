@@ -20,7 +20,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     public DbSet<ProjectMember> ProjectMembers { get; set; }
     public DbSet<TaskEntity> Tasks { get; set; }
     public DbSet<ProjectFile> ProjectFiles { get; set; }
-    public DbSet<UserRole> UserRoles { get; set; }
+    public new DbSet<UserRole> UserRoles { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder builder)
