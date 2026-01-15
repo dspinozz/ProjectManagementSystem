@@ -14,6 +14,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectManagementSystem.Uni
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectManagementSystem.IntegrationTests", "tests\ProjectManagementSystem.IntegrationTests\ProjectManagementSystem.IntegrationTests.csproj", "{F6A7B8C9-D0E1-4F5A-9B0C-5D6E7F8A9B0C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProjectManagementSystem.UI", "src\ProjectManagementSystem.UI\ProjectManagementSystem.UI.csproj", "{G7B8C9D0-E1F2-4G5H-9I0J-6K7L8M9N0O1P}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,5 +46,9 @@ Global
 		{F6A7B8C9-D0E1-4F5A-9B0C-5D6E7F8A9B0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F6A7B8C9-D0E1-4F5A-9B0C-5D6E7F8A9B0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F6A7B8C9-D0E1-4F5A-9B0C-5D6E7F8A9B0C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{G7B8C9D0-E1F2-4G5H-9I0J-6K7L8M9N0O1P}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{G7B8C9D0-E1F2-4G5H-9I0J-6K7L8M9N0O1P}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{G7B8C9D0-E1F2-4G5H-9I0J-6K7L8M9N0O1P}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{G7B8C9D0-E1F2-4G5H-9I0J-6K7L8M9N0O1P}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

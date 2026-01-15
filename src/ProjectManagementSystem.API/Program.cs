@@ -8,9 +8,22 @@ using ProjectManagementSystem.API.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add configuration sources (User Secrets for development, Environment Variables for production)
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddUserSecrets<Program>();
+}
+builder.Configuration.AddEnvironmentVariables();
+
 // Add services to the container
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHealthChecks();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
@@ -62,10 +75,10 @@ builder.Services.AddSwaggerGen(c =>
             Array.Empty<string>()
         }
     });
-    
-    // Note: EnableAnnotations requires Swashbuckle.AspNetCore.Annotations package
-    // Uncomment if you add the package: c.EnableAnnotations();
 });
+
+// Note: Kestrel configuration is handled via ASPNETCORE_URLS environment variable
+// For HTTPS, configure a reverse proxy (nginx, traefik) in production
 
 // Add Infrastructure
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -75,12 +88,9 @@ builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 
-// Health Checks
-builder.Services.AddHealthChecks();
-
 // CORS - Configure allowed origins from configuration
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
-    ?? new[] { "http://localhost:3000", "http://localhost:5000" };
+    ?? new[] { "http://localhost:3000", "http://localhost:5000", "http://localhost:5002" };
 
 builder.Services.AddCors(options =>
 {
@@ -113,8 +123,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-app.UseCors(builder.Environment.IsDevelopment() ? "AllowAll" : "Default");
+// HTTPS Redirection (only in production if certificate is configured)
+var useHttps = app.Configuration.GetValue<bool>("USE_HTTPS", false);
+if (useHttps && app.Environment.IsProduction())
+{
+    app.UseHttpsRedirection();
+}
+
+app.UseCors(app.Environment.IsDevelopment() ? "AllowAll" : "Default");
 
 // Exception handling middleware (should be early in pipeline)
 app.UseMiddleware<ExceptionHandlingMiddleware>();
@@ -125,7 +141,7 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
 
-// Seed database
+// Database initialization
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -133,34 +149,33 @@ using (var scope = app.Services.CreateScope())
     {
         var context = services.GetRequiredService<ApplicationDbContext>();
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+        var roleManager = services.GetRequiredService<RoleManager<Microsoft.AspNetCore.Identity.IdentityRole>>();
         
         // Ensure database is created
-        await context.Database.EnsureCreatedAsync();
+        context.Database.EnsureCreated();
         
-        // Seed roles
+        // Seed roles if they don't exist
         if (!await roleManager.RoleExistsAsync("Admin"))
         {
-            await roleManager.CreateAsync(new IdentityRole("Admin"));
+            await roleManager.CreateAsync(new Microsoft.AspNetCore.Identity.IdentityRole("Admin"));
         }
         if (!await roleManager.RoleExistsAsync("ProjectManager"))
         {
-            await roleManager.CreateAsync(new IdentityRole("ProjectManager"));
+            await roleManager.CreateAsync(new Microsoft.AspNetCore.Identity.IdentityRole("ProjectManager"));
         }
         if (!await roleManager.RoleExistsAsync("TeamMember"))
         {
-            await roleManager.CreateAsync(new IdentityRole("TeamMember"));
+            await roleManager.CreateAsync(new Microsoft.AspNetCore.Identity.IdentityRole("TeamMember"));
         }
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while seeding the database.");
+        logger.LogError(ex, "An error occurred while initializing the database.");
     }
 }
 
 app.Run();
 
-// Make Program class accessible for testing
+// For integration tests
 public partial class Program { }
-

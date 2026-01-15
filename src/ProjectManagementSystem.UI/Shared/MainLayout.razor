@@ -1,0 +1,322 @@
+@inherits LayoutComponentBase
+@using ProjectManagementSystem.UI.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+<AuthorizeView>
+    <Authorized Context="authContext">
+        <div class="app-layout">
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo">
+                        <span class="logo-icon">📊</span>
+                        <span class="logo-text">ProjectHub</span>
+                    </div>
+                </div>
+
+                <nav class="sidebar-nav">
+                    <div class="nav-section">
+                        <span class="nav-section-title">Main</span>
+                        <NavLink href="/projects" Match="NavLinkMatch.Prefix" class="nav-link">
+                            <span class="nav-icon">📁</span>
+                            <span class="nav-label">Projects</span>
+                        </NavLink>
+                        <NavLink href="/tasks" Match="NavLinkMatch.All" class="nav-link">
+                            <span class="nav-icon">✓</span>
+                            <span class="nav-label">Tasks</span>
+                        </NavLink>
+                        <NavLink href="/workspaces" Match="NavLinkMatch.All" class="nav-link">
+                            <span class="nav-icon">💼</span>
+                            <span class="nav-label">Workspaces</span>
+                        </NavLink>
+                    </div>
+
+                    <AuthorizeView Roles="Admin" Context="adminNavContext">
+                        <Authorized>
+                            <div class="nav-section">
+                                <span class="nav-section-title">Administration</span>
+                                <NavLink href="/organizations" Match="NavLinkMatch.All" class="nav-link">
+                                    <span class="nav-icon">🏢</span>
+                                    <span class="nav-label">Organizations</span>
+                                </NavLink>
+                                <NavLink href="/admin" Match="NavLinkMatch.All" class="nav-link">
+                                    <span class="nav-icon">🔒</span>
+                                    <span class="nav-label">Audit Logs</span>
+                                </NavLink>
+                            </div>
+                        </Authorized>
+                    </AuthorizeView>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <div class="user-profile">
+                        <div class="user-avatar">
+                            @GetUserInitials(authContext.User)
+                        </div>
+                        <div class="user-details">
+                            <span class="user-name">@GetUserDisplayName(authContext.User)</span>
+                            <span class="user-role-badge">@GetUserRole(authContext.User)</span>
+                        </div>
+                    </div>
+                    <button class="logout-btn" @onclick="HandleLogout">
+                        <span>↗</span> Sign Out
+                    </button>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div class="content-wrapper">
+                    @Body
+                </div>
+            </main>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        @Body
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private string GetUserDisplayName(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var name = user?.Identity?.Name ?? "User";
+        var givenName = user?.FindFirst(System.Security.Claims.ClaimTypes.GivenName)?.Value;
+        var surname = user?.FindFirst(System.Security.Claims.ClaimTypes.Surname)?.Value;
+        
+        if (!string.IsNullOrEmpty(givenName) && !string.IsNullOrEmpty(surname))
+        {
+            return $"{givenName} {surname}";
+        }
+        return name;
+    }
+
+    private string GetUserInitials(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var name = GetUserDisplayName(user);
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return $"{parts[0][0]}{parts[1][0]}".ToUpper();
+        return name.Length >= 2 ? name.Substring(0, 2).ToUpper() : name.ToUpper();
+    }
+
+    private string GetUserRole(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var role = user?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        return role ?? "User";
+    }
+
+    private async Task HandleLogout()
+    {
+        await AuthService.LogoutAsync();
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+        {
+            customProvider.NotifyUserLogout();
+        }
+        Navigation.NavigateTo("/login");
+    }
+}
+
+<style>
+    .app-layout {
+        display: flex;
+        min-height: 100vh;
+        background: #f1f5f9;
+    }
+
+    /* Sidebar */
+    .sidebar {
+        width: 260px;
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        color: white;
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 100;
+    }
+
+    .sidebar-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .logo-icon {
+        font-size: 1.5rem;
+    }
+
+    .logo-text {
+        font-size: 1.25rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    /* Navigation */
+    .sidebar-nav {
+        flex: 1;
+        padding: 1rem 0;
+        overflow-y: auto;
+    }
+
+    .nav-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .nav-section-title {
+        display: block;
+        padding: 0 1.5rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1.5rem;
+        color: rgba(255, 255, 255, 0.7);
+        text-decoration: none;
+        transition: all 0.2s ease;
+        border-left: 3px solid transparent;
+        margin: 0.125rem 0;
+    }
+
+    .nav-link:hover {
+        color: white;
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .nav-link.active {
+        color: #818cf8;
+        background: rgba(99, 102, 241, 0.15);
+        border-left-color: #6366f1;
+    }
+
+    .nav-icon {
+        font-size: 1rem;
+        width: 24px;
+        text-align: center;
+    }
+
+    .nav-label {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    /* User Section */
+    .sidebar-footer {
+        padding: 1rem 1.25rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .user-profile {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: white;
+    }
+
+    .user-details {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .user-name {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: white;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .user-role-badge {
+        font-size: 0.6875rem;
+        font-weight: 500;
+        color: #818cf8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .logout-btn {
+        width: 100%;
+        padding: 0.625rem 1rem;
+        background: rgba(239, 68, 68, 0.1);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .logout-btn:hover {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    /* Main Content */
+    .main-content {
+        flex: 1;
+        margin-left: 260px;
+        min-height: 100vh;
+    }
+
+    .content-wrapper {
+        padding: 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    /* Responsive */
+    @@media (max-width: 768px) {
+        .sidebar {
+            width: 100%;
+            position: relative;
+        }
+
+        .main-content {
+            margin-left: 0;
+        }
+
+        .content-wrapper {
+            padding: 1rem;
+        }
+    }
+</style>

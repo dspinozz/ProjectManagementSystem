@@ -4,14 +4,22 @@ A comprehensive C# ASP.NET Core Web API project management system with enterpris
 
 ## Tech Stack
 
-- **Framework**: ASP.NET Core 8.0 Web API (API-only, no frontend)
+### Backend
+- **Framework**: ASP.NET Core 8.0 Web API
 - **ORM**: Entity Framework Core 8.0
-- **Database**: SQL Server / PostgreSQL (configurable)
+- **Database**: SQL Server / PostgreSQL / SQLite (configurable)
 - **Authentication**: JWT Bearer Tokens with ASP.NET Core Identity
 - **Authorization**: Role-Based Access Control (RBAC) with policies
 - **Email**: MailKit/MimeKit
 - **File Storage**: Local file system (configurable)
 - **API Documentation**: Swagger/OpenAPI
+
+### Frontend
+- **Framework**: Blazor Server (.NET 8.0)
+- **UI Components**: MudBlazor
+- **Authentication**: JWT token-based with custom AuthenticationStateProvider
+- **Authorization**: Role-based UI rendering and route protection
+- **API Integration**: HttpClient with JWT bearer token injection
 
 ## Features
 
@@ -66,6 +74,12 @@ ProjectManagementSystem/
 │   │   ├── Controllers/                      # API controllers
 │   │   ├── Program.cs                        # Application entry point
 │   │   └── appsettings.json                  # Configuration
+│   ├── ProjectManagementSystem.UI/           # Blazor Server UI
+│   │   ├── Pages/                           # Blazor pages (Login, Projects, Admin)
+│   │   ├── Services/                        # API client services
+│   │   ├── Models/                          # DTOs and view models
+│   │   ├── Shared/                          # Layout and shared components
+│   │   └── wwwroot/                         # Static files
 │   ├── ProjectManagementSystem.Application/   # Application services
 │   │   └── Services/                         # Business logic services
 │   ├── ProjectManagementSystem.Domain/       # Domain models
@@ -74,6 +88,12 @@ ProjectManagementSystem/
 │       ├── Data/                             # DbContext and data access
 │       ├── Services/                         # Infrastructure services
 │       └── Extensions/                       # Service extensions
+├── tests/
+│   ├── ProjectManagementSystem.UnitTests/     # Unit tests
+│   └── ProjectManagementSystem.IntegrationTests/ # Integration tests
+├── docker-compose.yml                        # Docker Compose configuration
+├── Dockerfile                                # API Dockerfile
+├── Dockerfile.UI                             # UI Dockerfile
 └── ProjectManagementSystem.sln                # Solution file
 ```
 
@@ -142,14 +162,28 @@ ProjectManagementSystem/
    ```
 
 6. **Run the application**
+
+   **Option A: Run API and UI separately**
    ```bash
+   # Terminal 1 - API
    cd src/ProjectManagementSystem.API
+   dotnet run
+   
+   # Terminal 2 - UI
+   cd src/ProjectManagementSystem.UI
    dotnet run
    ```
 
-7. **Access Swagger UI**
+   **Option B: Run with Docker Compose (Recommended)**
+   ```bash
+   docker-compose up
+   ```
+
+7. **Access the application**
    
-   Navigate to `https://localhost:5001/swagger` (or the port shown in the console)
+   - **Blazor UI**: `http://localhost:5000` (or port shown in console)
+   - **API Swagger**: `https://localhost:5001/swagger` (or port shown in console)
+   - **API Health**: `http://localhost:8080/health` (when using Docker)
 
 ### Database Migrations
 
@@ -202,6 +236,9 @@ dotnet ef database update --project src/ProjectManagementSystem.Infrastructure -
 - `GET /api/files/{id}/download` - Download file
 - `GET /api/files/project/{projectId}` - Get files for project
 - `DELETE /api/files/{id}` - Delete file (ProjectManager/Admin)
+
+### Audit Logs
+- `GET /api/audit?page=1&pageSize=50` - Get audit logs (Admin only)
 
 ## Authentication
 
@@ -279,6 +316,48 @@ The email service supports:
 - File uploads are restricted to authenticated users
 - SQL injection protection via EF Core parameterized queries
 
+## Blazor UI Features
+
+### ✅ Pages Implemented
+- **Login Page**: JWT authentication with token storage
+- **Projects List**: Search, pagination, and project creation
+- **Project Details**: Task management within projects
+- **Admin Panel**: Audit log viewer (Admin role only)
+
+### ✅ UI Features
+- **Role-Based UI**: Different navigation and features based on user role
+- **JWT Authentication**: Secure token-based authentication
+- **Responsive Design**: Modern, clean UI with CSS styling
+- **Real-time Updates**: Blazor Server SignalR connection
+- **API Integration**: HttpClient services with automatic JWT token injection
+
+### ✅ Security Features
+- **Route Protection**: `[Authorize]` attributes on protected pages
+- **Role-Based Access**: `[Authorize(Roles = "Admin")]` for admin-only pages
+- **Token Management**: Secure token storage and automatic header injection
+- **Authentication State**: Custom AuthenticationStateProvider for Blazor
+
+## Docker Deployment
+
+The project includes Docker Compose configuration for running both API and UI:
+
+```bash
+# Start both services
+docker-compose up
+
+# Start in background
+docker-compose up -d
+
+# Stop services
+docker-compose down
+```
+
+**Services:**
+- **API**: `http://localhost:8080` (or configured port)
+- **UI**: `http://localhost:5000` (or configured port)
+
+The UI automatically connects to the API service using the configured base URL.
+
 ## Future Enhancements
 
 - Real-time notifications (SignalR)
@@ -287,8 +366,8 @@ The email service supports:
 - Time tracking
 - Reporting and analytics
 - Integration with external services
-- Docker containerization
 - CI/CD pipeline
+- WebAssembly deployment option
 
 ## Testing
 

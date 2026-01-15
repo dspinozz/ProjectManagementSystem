@@ -148,46 +148,25 @@ MigrationBackup/
 mono_crash.*
 
 # Windows image file caches
-Thumbs.db
-ehthumbs.db
 
-# Folder config file
-Desktop.ini
-
-# Recycle Bin used on file shares
-$RECYCLE.BIN/
-
-# Mac desktop service store files
-.DS_Store
-
-# Project-specific
-uploads/
-appsettings.Production.json
-appsettings.Local.json
+# SQLite databases
 *.db
 *.db-shm
 *.db-wal
-projectmanagement.db
 
-# AI-generated checkpoint/documentation files (not needed for portfolio)
-IMPROVEMENTS.md
-GAPS_FIXED.md
-STABILITY_IMPROVEMENTS.md
-PRE_GITHUB_CHECKLIST.md
-TESTING_STATUS.md
-FINAL_ASSESSMENT.md
-ANSWERS.md
-FINAL_TEST_VERIFICATION.md
-PORTFOLIO_READINESS.md
-SWAGGER_EXPLANATION.md
-TEST_ANALYSIS_REPORT.md
-TEST_COVERAGE_ANALYSIS.md
-TEST_COVERAGE_ASSESSMENT.md
-TEST_DATA_SEEDING_RECOMMENDATION.md
-TEST_EXPANSION_SUMMARY.md
-TEST_RUN_INSTRUCTIONS.md
-TEST_SEEDING_SUMMARY.md
-TEST_STATUS.md
-TEST_VERIFICATION.md
-TEST_VERIFICATION_COMPLETE.md
-PRE_GITHUB_FINAL_CHECKLIST.md
+# Secrets and Certificates
+certs/
+*.pfx
+*.pem
+*.key
+.env
+secrets.json
+appsettings.Production.json
+appsettings.Local.json
+
+# Data and documentation folders
+data/
+docs/
+
+# Log files
+*.log

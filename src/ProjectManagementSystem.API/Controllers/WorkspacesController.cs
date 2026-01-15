@@ -28,7 +28,7 @@ public class WorkspacesController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "TeamMemberOrAbove")]
-    public async Task<ActionResult<IEnumerable<Workspace>>> GetWorkspaces([FromQuery] Guid? organizationId)
+    public async Task<ActionResult<IEnumerable<object>>> GetWorkspaces([FromQuery] Guid? organizationId)
     {
         var query = _context.Workspaces
             .Include(w => w.Organization)
@@ -39,7 +39,16 @@ public class WorkspacesController : ControllerBase
             query = query.Where(w => w.OrganizationId == organizationId.Value);
         }
 
-        var workspaces = await query.ToListAsync();
+        var workspaces = await query.Select(w => new {
+            w.Id,
+            w.Name,
+            w.Description,
+            w.OrganizationId,
+            OrganizationName = w.Organization != null ? w.Organization.Name : null,
+            w.CreatedAt,
+            w.UpdatedAt
+        }).ToListAsync();
+        
         return Ok(workspaces);
     }
 
@@ -62,7 +71,7 @@ public class WorkspacesController : ControllerBase
 
     [HttpPost]
     [Authorize(Policy = "ProjectManagerOrAdmin")]
-    public async Task<ActionResult<Workspace>> CreateWorkspace([FromBody] Workspace workspace)
+    public async Task<ActionResult<object>> CreateWorkspace([FromBody] CreateWorkspaceDto request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId))
@@ -70,8 +79,22 @@ public class WorkspacesController : ControllerBase
             return Unauthorized();
         }
 
-        workspace.Id = Guid.NewGuid();
-        workspace.CreatedAt = DateTime.UtcNow;
+        // Validate organization exists
+        var organization = await _context.Organizations.FindAsync(request.OrganizationId);
+        if (organization == null)
+        {
+            return BadRequest("Organization not found");
+        }
+
+        var workspace = new Workspace
+        {
+            Id = Guid.NewGuid(),
+            Name = request.Name,
+            Description = request.Description,
+            OrganizationId = request.OrganizationId,
+            Organization = organization,
+            CreatedAt = DateTime.UtcNow
+        };
 
         _context.Workspaces.Add(workspace);
         await _context.SaveChangesAsync();
@@ -86,7 +109,21 @@ public class WorkspacesController : ControllerBase
             null
         );
 
-        return CreatedAtAction(nameof(GetWorkspace), new { id = workspace.Id }, workspace);
+        return CreatedAtAction(nameof(GetWorkspace), new { id = workspace.Id }, new {
+            workspace.Id,
+            workspace.Name,
+            workspace.Description,
+            workspace.OrganizationId,
+            OrganizationName = organization.Name,
+            workspace.CreatedAt
+        });
+    }
+
+    public class CreateWorkspaceDto
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public Guid OrganizationId { get; set; }
     }
 
     [HttpPut("{id}")]

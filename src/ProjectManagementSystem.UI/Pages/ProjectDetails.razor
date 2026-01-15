@@ -1,0 +1,967 @@
+@page "/projects/{ProjectId}"
+@using ProjectManagementSystem.UI.Services
+@using ProjectManagementSystem.UI.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IProjectService ProjectService
+@inject ITaskService TaskService
+@inject IFileService FileService
+
+<PageTitle>Project Details - Project Management System</PageTitle>
+
+@if (isLoading)
+{
+    <div class="loading">Loading project...</div>
+}
+else if (project == null)
+{
+    <div class="error-container">
+        <h2>Project Not Found</h2>
+        <p>@errorMessage</p>
+        <button class="btn btn-primary" @onclick="GoBack">Back to Projects</button>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success">@successMessage</div>
+    }
+    <div class="project-details-container">
+        <div class="header">
+            <button class="btn btn-secondary" @onclick="GoBack">← Back to Projects</button>
+            <h1>@project.Name</h1>
+            <span class="status-badge status-@project.Status">@GetProjectStatusText(project.Status)</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(project.Description))
+        {
+            <div class="description">@project.Description</div>
+        }
+
+        <div class="project-meta">
+            <div class="meta-item">
+                <span class="meta-label">Created</span>
+                <span class="meta-value">@project.CreatedAt.ToString("MMM dd, yyyy")</span>
+            </div>
+            @if (project.StartDate.HasValue)
+            {
+                <div class="meta-item">
+                    <span class="meta-label">Start Date</span>
+                    <span class="meta-value">@project.StartDate.Value.ToString("MMM dd, yyyy")</span>
+                </div>
+            }
+            @if (project.EndDate.HasValue)
+            {
+                <div class="meta-item">
+                    <span class="meta-label">End Date</span>
+                    <span class="meta-value">@project.EndDate.Value.ToString("MMM dd, yyyy")</span>
+                </div>
+            }
+        </div>
+
+        <!-- Tasks Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>📋 Tasks (@tasks.Count)</h2>
+                <button class="btn btn-primary" @onclick="ShowCreateTaskModal">+ Add Task</button>
+            </div>
+
+            @if (tasks.Any())
+            {
+                <div class="tasks-list">
+                    @foreach (var task in tasks)
+                    {
+                        <div class="task-item priority-@task.Priority">
+                            <div class="task-header">
+                                <h3>@task.Title</h3>
+                                <div class="task-actions-row">
+                                    <div class="task-badges">
+                                        <span class="priority-badge priority-badge-@task.Priority">@GetPriorityText(task.Priority)</span>
+                                        <span class="status-badge status-@task.Status">@GetStatusText(task.Status)</span>
+                                    </div>
+                                    <div class="task-buttons">
+                                        <button class="btn-icon" title="Edit" @onclick="() => ShowEditTaskModal(task)">✏️</button>
+                                        <button class="btn-icon btn-danger-icon" title="Delete" @onclick="() => ShowDeleteTaskConfirm(task)">🗑️</button>
+                                    </div>
+                                </div>
+                            </div>
+                            @if (!string.IsNullOrEmpty(task.Description))
+                            {
+                                <p class="task-description">@task.Description</p>
+                            }
+                            <div class="task-meta">
+                                @if (task.DueDate.HasValue)
+                                {
+                                    <span class="@(task.DueDate < DateTime.Now ? "overdue" : "")">
+                                        📅 Due: @task.DueDate.Value.ToString("MMM dd, yyyy")
+                                    </span>
+                                }
+                                <span>Created: @task.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state">No tasks yet. Create your first task!</div>
+            }
+        </div>
+
+        <!-- Files Section -->
+        <div class="section">
+            <div class="section-header">
+                <h2>📁 Files (@files.Count)</h2>
+                <label class="btn btn-primary file-upload-btn">
+                    + Upload File
+                    <InputFile OnChange="@HandleFileUpload" style="display: none;" />
+                </label>
+            </div>
+
+            @if (isUploading)
+            {
+                <div class="upload-progress">Uploading file...</div>
+            }
+
+            @if (files.Any())
+            {
+                <div class="files-list">
+                    @foreach (var file in files)
+                    {
+                        <div class="file-item">
+                            <div class="file-icon">@GetFileIcon(file.ContentType)</div>
+                            <div class="file-info">
+                                <div class="file-name">@file.FileName</div>
+                                <div class="file-meta">
+                                    <span>@FormatFileSize(file.FileSize)</span>
+                                    <span>@file.UploadedAt.ToString("MMM dd, yyyy")</span>
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-secondary" @onclick="() => DownloadFile(file.Id, file.FileName)">Download</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteFile(file.Id)">Delete</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="empty-state">No files uploaded yet.</div>
+            }
+        </div>
+    </div>
+}
+
+@if (showCreateTaskModal)
+{
+    <div class="modal-overlay" @onclick="CloseCreateTaskModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Create New Task</h2>
+            <EditForm Model="@newTask" OnValidSubmit="@HandleCreateTask">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Task Title *</label>
+                    <InputText @bind-Value="newTask.Title" class="form-control" />
+                    <ValidationMessage For="@(() => newTask.Title)" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <InputTextArea @bind-Value="newTask.Description" class="form-control" rows="3" />
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <InputSelect @bind-Value="newTask.Priority" class="form-control">
+                        <option value="0">Low</option>
+                        <option value="1">Medium</option>
+                        <option value="2">High</option>
+                        <option value="3">Critical</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group">
+                    <label>Due Date</label>
+                    <InputDate @bind-Value="newTask.DueDate" class="form-control" />
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseCreateTaskModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isCreating">@(isCreating ? "Creating..." : "Create")</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@* Edit Task Modal *@
+@if (showEditTaskModal && editTask != null)
+{
+    <div class="modal-overlay" @onclick="CloseTaskModals">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Edit Task</h2>
+            <EditForm Model="@editTask" OnValidSubmit="@HandleEditTask">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Task Title *</label>
+                    <InputText @bind-Value="editTask.Title" class="form-control" />
+                    <ValidationMessage For="@(() => editTask.Title)" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <InputTextArea @bind-Value="editTask.Description" class="form-control" rows="3" />
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <InputSelect @bind-Value="editTask.Status" class="form-control">
+                        <option value="0">To Do</option>
+                        <option value="1">In Progress</option>
+                        <option value="2">In Review</option>
+                        <option value="3">Done</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <InputSelect @bind-Value="editTask.Priority" class="form-control">
+                        <option value="0">Low</option>
+                        <option value="1">Medium</option>
+                        <option value="2">High</option>
+                        <option value="3">Critical</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group">
+                    <label>Due Date</label>
+                    <InputDate @bind-Value="editTask.DueDate" class="form-control" />
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseTaskModals">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isCreating">@(isCreating ? "Saving..." : "Save Changes")</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@* Delete Task Confirmation *@
+@if (showDeleteTaskModal && taskToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CloseTaskModals">
+        <div class="modal-content modal-small" @onclick:stopPropagation="true">
+            <h2>Delete Task</h2>
+            <p>Are you sure you want to delete <strong>@taskToDelete.Title</strong>?</p>
+            <p class="text-danger">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseTaskModals">Cancel</button>
+                <button class="btn btn-danger" @onclick="HandleDeleteTask" disabled="@isCreating">@(isCreating ? "Deleting..." : "Delete")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string ProjectId { get; set; } = string.Empty;
+    [Inject] private IAuthService AuthService { get; set; } = null!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = null!;
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
+
+    private ProjectDto? project;
+    private List<TaskDto> tasks = new();
+    private List<ProjectFileDto> files = new();
+    private bool showCreateTaskModal = false;
+    private bool showEditTaskModal = false;
+    private bool showDeleteTaskModal = false;
+    private CreateTaskRequest newTask = new();
+    private UpdateTaskRequest? editTask;
+    private string? editTaskId;
+    private TaskDto? taskToDelete;
+    private bool isCreating = false;
+    private bool isUploading = false;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProject();
+        await LoadTasks();
+        await LoadFiles();
+        isLoading = false;
+    }
+
+    private async Task LoadProject()
+    {
+        errorMessage = null;
+        try
+        {
+            project = await ProjectService.GetProjectByIdAsync(ProjectId);
+            if (project == null)
+            {
+                errorMessage = "Project not found.";
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            await HandleUnauthorized();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load project: {ex.Message}";
+        }
+    }
+
+    private async Task LoadTasks()
+    {
+        try
+        {
+            tasks = await TaskService.GetTasksByProjectAsync(ProjectId);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            await HandleUnauthorized();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load tasks: {ex.Message}";
+        }
+    }
+
+    private async Task LoadFiles()
+    {
+        try
+        {
+            files = await FileService.GetProjectFilesAsync(ProjectId);
+        }
+        catch (Exception)
+        {
+            // Files endpoint might not exist - silently fail
+            files = new();
+        }
+    }
+
+    private async Task HandleUnauthorized()
+    {
+        await AuthService.LogoutAsync();
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+        {
+            customProvider.NotifyUserLogout();
+        }
+        Navigation.NavigateTo("/login");
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/projects");
+    }
+
+    private void ShowCreateTaskModal()
+    {
+        newTask = new CreateTaskRequest
+        {
+            ProjectId = ProjectId,
+            Status = 0,
+            Priority = 1
+        };
+        showCreateTaskModal = true;
+    }
+
+    private void CloseCreateTaskModal()
+    {
+        showCreateTaskModal = false;
+    }
+
+    private async Task HandleCreateTask()
+    {
+        isCreating = true;
+        errorMessage = null;
+        try
+        {
+            var success = await TaskService.CreateTaskAsync(newTask);
+            if (success)
+            {
+                successMessage = "Task created successfully!";
+                await LoadTasks();
+                CloseCreateTaskModal();
+            }
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            await HandleUnauthorized();
+        }
+        catch (ArgumentException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create task: {ex.Message}";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    // Edit Task
+    private void ShowEditTaskModal(TaskDto task)
+    {
+        editTaskId = task.Id;
+        editTask = new UpdateTaskRequest
+        {
+            Title = task.Title,
+            Description = task.Description,
+            Status = task.Status,
+            Priority = task.Priority,
+            DueDate = task.DueDate
+        };
+        showEditTaskModal = true;
+    }
+
+    private async Task HandleEditTask()
+    {
+        if (editTask == null || editTaskId == null) return;
+        
+        isCreating = true;
+        errorMessage = null;
+        try
+        {
+            var success = await TaskService.UpdateTaskAsync(editTaskId, editTask);
+            if (success)
+            {
+                successMessage = "Task updated successfully!";
+                await LoadTasks();
+                CloseTaskModals();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update task: {ex.Message}";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    // Delete Task
+    private void ShowDeleteTaskConfirm(TaskDto task)
+    {
+        taskToDelete = task;
+        showDeleteTaskModal = true;
+    }
+
+    private async Task HandleDeleteTask()
+    {
+        if (taskToDelete == null) return;
+        
+        isCreating = true;
+        errorMessage = null;
+        try
+        {
+            var success = await TaskService.DeleteTaskAsync(taskToDelete.Id);
+            if (success)
+            {
+                successMessage = "Task deleted.";
+                await LoadTasks();
+                CloseTaskModals();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete task: {ex.Message}";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void CloseTaskModals()
+    {
+        showEditTaskModal = false;
+        showDeleteTaskModal = false;
+        editTask = null;
+        taskToDelete = null;
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        isUploading = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            var file = e.File;
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024); // 10MB max
+            var success = await FileService.UploadFileAsync(ProjectId, stream, file.Name, file.ContentType);
+            if (success)
+            {
+                successMessage = "File uploaded successfully!";
+                await LoadFiles();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to upload file: {ex.Message}";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task DownloadFile(string fileId, string fileName)
+    {
+        try
+        {
+            var stream = await FileService.DownloadFileAsync(fileId);
+            if (stream != null)
+            {
+                // Use JS interop to trigger download
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                var bytes = memoryStream.ToArray();
+                var base64 = Convert.ToBase64String(bytes);
+                await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to download file: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteFile(string fileId)
+    {
+        try
+        {
+            var success = await FileService.DeleteFileAsync(fileId);
+            if (success)
+            {
+                successMessage = "File deleted.";
+                await LoadFiles();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete file: {ex.Message}";
+        }
+    }
+
+    private string GetProjectStatusText(int status) => status switch
+    {
+        0 => "Planning",
+        1 => "In Progress",
+        2 => "On Hold",
+        3 => "Completed",
+        4 => "Cancelled",
+        _ => "Unknown"
+    };
+
+    private string GetStatusText(int status) => status switch
+    {
+        0 => "To Do",
+        1 => "In Progress",
+        2 => "In Review",
+        3 => "Done",
+        _ => "Unknown"
+    };
+
+    private string GetPriorityText(int priority) => priority switch
+    {
+        0 => "Low",
+        1 => "Medium",
+        2 => "High",
+        3 => "Critical",
+        _ => "Unknown"
+    };
+
+    private string GetFileIcon(string contentType) => contentType switch
+    {
+        var t when t.StartsWith("image/") => "🖼️",
+        var t when t.StartsWith("video/") => "🎬",
+        var t when t.Contains("pdf") => "📄",
+        var t when t.Contains("word") || t.Contains("document") => "📝",
+        var t when t.Contains("excel") || t.Contains("spreadsheet") => "📊",
+        var t when t.Contains("zip") || t.Contains("archive") => "📦",
+        _ => "📎"
+    };
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}
+
+<style>
+    .project-details-container {
+        padding: 2rem;
+        max-width: 1000px;
+        margin: 0 auto;
+    }
+
+    .header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .header h1 {
+        margin: 0;
+        flex: 1;
+    }
+
+    .description {
+        background: #f8f9fa;
+        padding: 1rem 1.25rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        color: #4b5563;
+        border-left: 4px solid #6366f1;
+    }
+
+    .project-meta {
+        display: flex;
+        gap: 2rem;
+        margin-bottom: 2rem;
+        padding: 1rem;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .meta-item {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .meta-label {
+        font-size: 0.75rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .meta-value {
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    .section {
+        margin-top: 2rem;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .section-header h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #1f2937;
+    }
+
+    .tasks-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .task-item {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1.25rem;
+        border-left: 3px solid transparent;
+    }
+
+    .task-item.priority-2 { border-left-color: #f59e0b; }
+    .task-item.priority-3 { border-left-color: #ef4444; }
+
+    .task-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .task-header h3 {
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .task-badges {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .status-badge, .priority-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .status-0 { background: #e5e7eb; color: #374151; }
+    .status-1 { background: #dbeafe; color: #1d4ed8; }
+    .status-2 { background: #fef3c7; color: #d97706; }
+    .status-3 { background: #d1fae5; color: #059669; }
+
+    .priority-badge-0 { background: #f3f4f6; color: #6b7280; }
+    .priority-badge-1 { background: #e0e7ff; color: #4338ca; }
+    .priority-badge-2 { background: #fef3c7; color: #d97706; }
+    .priority-badge-3 { background: #fee2e2; color: #dc2626; }
+
+    .task-description {
+        color: #6b7280;
+        margin: 0.5rem 0;
+        font-size: 0.9rem;
+    }
+
+    .task-meta {
+        display: flex;
+        gap: 1.5rem;
+        margin-top: 0.75rem;
+        font-size: 0.8rem;
+        color: #9ca3af;
+    }
+
+    .task-meta .overdue {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    /* Files */
+    .files-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .file-item {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+
+    .file-icon {
+        font-size: 1.5rem;
+    }
+
+    .file-info {
+        flex: 1;
+    }
+
+    .file-name {
+        font-weight: 500;
+        color: #1f2937;
+    }
+
+    .file-meta {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.8rem;
+        color: #9ca3af;
+    }
+
+    .file-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .file-upload-btn {
+        cursor: pointer;
+    }
+
+    .upload-progress {
+        padding: 1rem;
+        background: #dbeafe;
+        color: #1d4ed8;
+        border-radius: 8px;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: #9ca3af;
+        background: #f9fafb;
+        border-radius: 8px;
+    }
+
+    .loading {
+        text-align: center;
+        padding: 2rem;
+        color: #6b7280;
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .modal-content {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 500px;
+    }
+
+    .modal-content h2 {
+        margin-top: 0;
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    .btn-primary {
+        background: #6366f1;
+        color: white;
+    }
+
+    .btn-secondary {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .btn-danger {
+        background: #ef4444;
+        color: white;
+    }
+
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        box-sizing: border-box;
+    }
+
+    .alert {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .alert-danger {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .alert-success {
+        background: #d1fae5;
+        color: #059669;
+    }
+
+    .error-container {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    /* Task action buttons */
+    .task-actions-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .task-buttons {
+        display: flex;
+        gap: 0.25rem;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .task-item:hover .task-buttons {
+        opacity: 1;
+    }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        transition: background 0.2s;
+    }
+
+    .btn-icon:hover {
+        background: #f3f4f6;
+    }
+
+    .btn-danger-icon:hover {
+        background: #fee2e2;
+    }
+
+    .modal-small {
+        max-width: 400px;
+    }
+
+    .text-danger {
+        color: #dc2626;
+        font-size: 0.9rem;
+    }
+
+    @@media (max-width: 640px) {
+        .task-buttons {
+            opacity: 1;
+        }
+    }
+</style>

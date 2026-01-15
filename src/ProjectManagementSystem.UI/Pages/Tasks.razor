@@ -1,0 +1,539 @@
+@page "/tasks"
+@using ProjectManagementSystem.UI.Services
+@using ProjectManagementSystem.UI.Models
+@attribute [Authorize]
+
+<PageTitle>Tasks - Project Management System</PageTitle>
+
+<div class="tasks-page">
+    <div class="tasks-header">
+        <div>
+            <h1>Task Board</h1>
+            <p class="subtitle">View and manage all tasks across projects</p>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">⚠️ @errorMessage</div>
+    }
+
+    <div class="filters-bar">
+        <div class="filter-group">
+            <label>Status</label>
+            <select @bind="statusFilter" @bind:after="LoadTasks" class="filter-select">
+                <option value="">All Statuses</option>
+                <option value="0">To Do</option>
+                <option value="1">In Progress</option>
+                <option value="2">In Review</option>
+                <option value="3">Done</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Priority</label>
+            <select @bind="priorityFilter" @bind:after="LoadTasks" class="filter-select">
+                <option value="">All Priorities</option>
+                <option value="0">Low</option>
+                <option value="1">Medium</option>
+                <option value="2">High</option>
+                <option value="3">Critical</option>
+            </select>
+        </div>
+        <div class="filter-stats">
+            <span class="stat-item">@tasks.Count total tasks</span>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading tasks...</p>
+        </div>
+    }
+    else if (tasks.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <h3>No tasks found</h3>
+            <p>Tasks will appear here when you create them from within projects.</p>
+            <a href="/projects" class="btn btn-primary">Browse Projects</a>
+        </div>
+    }
+    else
+    {
+        <div class="kanban-board">
+            @foreach (var status in new[] { 0, 1, 2, 3 })
+            {
+                var columnTasks = tasks.Where(t => t.Status == status).ToList();
+                <div class="kanban-column">
+                    <div class="column-header @GetStatusClass(status)">
+                        <div class="header-left">
+                            <span class="status-dot"></span>
+                            <span class="status-name">@GetStatusName(status)</span>
+                        </div>
+                        <span class="task-count">@columnTasks.Count</span>
+                    </div>
+                    <div class="column-body">
+                        @if (columnTasks.Any())
+                        {
+                            @foreach (var task in columnTasks)
+                            {
+                                <div class="task-card @GetPriorityClass(task.Priority)">
+                                    <div class="card-top">
+                                        <span class="priority-indicator @GetPriorityClass(task.Priority)">@GetPriorityName(task.Priority)</span>
+                                        @if (task.DueDate.HasValue)
+                                        {
+                                            <span class="due-badge @(task.DueDate < DateTime.Now ? "overdue" : "")">
+                                                @task.DueDate.Value.ToString("MMM dd")
+                                            </span>
+                                        }
+                                    </div>
+                                    <h4 class="task-title">@task.Title</h4>
+                                    @if (!string.IsNullOrEmpty(task.Description))
+                                    {
+                                        <p class="task-desc">@TruncateText(task.Description, 80)</p>
+                                    }
+                                    <div class="card-footer">
+                                        <span class="created-date">Created @task.CreatedAt.ToString("MMM dd")</span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="column-empty">
+                                <span>No tasks</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private ITaskService TaskService { get; set; } = null!;
+
+    private List<TaskDto> tasks = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string statusFilter = "";
+    private string priorityFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTasks();
+    }
+
+    private async Task LoadTasks()
+    {
+        isLoading = true;
+        try
+        {
+            tasks = await TaskService.GetTasksAsync(null);
+            
+            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var status))
+            {
+                tasks = tasks.Where(t => t.Status == status).ToList();
+            }
+            if (!string.IsNullOrEmpty(priorityFilter) && int.TryParse(priorityFilter, out var priority))
+            {
+                tasks = tasks.Where(t => t.Priority == priority).ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetStatusName(int status) => status switch
+    {
+        0 => "To Do",
+        1 => "In Progress",
+        2 => "In Review",
+        3 => "Done",
+        _ => "Unknown"
+    };
+
+    private string GetStatusClass(int status) => status switch
+    {
+        0 => "status-todo",
+        1 => "status-progress",
+        2 => "status-review",
+        3 => "status-done",
+        _ => ""
+    };
+
+    private string GetPriorityName(int priority) => priority switch
+    {
+        0 => "Low",
+        1 => "Medium",
+        2 => "High",
+        3 => "Critical",
+        _ => "Normal"
+    };
+
+    private string GetPriorityClass(int priority) => priority switch
+    {
+        0 => "priority-low",
+        1 => "priority-medium",
+        2 => "priority-high",
+        3 => "priority-critical",
+        _ => ""
+    };
+
+    private string TruncateText(string text, int max) =>
+        string.IsNullOrEmpty(text) || text.Length <= max ? text : text.Substring(0, max) + "...";
+}
+
+<style>
+    .tasks-page {
+        padding: 0;
+    }
+
+    .tasks-header {
+        margin-bottom: 1.5rem;
+    }
+
+    .tasks-header h1 {
+        margin: 0;
+        font-size: 1.75rem;
+        color: #1e293b;
+    }
+
+    .subtitle {
+        color: #64748b;
+        margin-top: 0.25rem;
+    }
+
+    /* Filters */
+    .filters-bar {
+        display: flex;
+        gap: 1.5rem;
+        align-items: flex-end;
+        margin-bottom: 1.5rem;
+        padding: 1.25rem;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        flex-wrap: wrap;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .filter-group label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .filter-select {
+        padding: 0.625rem 1rem;
+        border: 1.5px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        color: #1e293b;
+        background: white;
+        min-width: 160px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .filter-select:focus {
+        outline: none;
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .filter-stats {
+        margin-left: auto;
+        color: #64748b;
+        font-size: 0.875rem;
+    }
+
+    /* Kanban Board */
+    .kanban-board {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+        min-height: 500px;
+    }
+
+    .kanban-column {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .column-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.875rem 1rem;
+        border-radius: 10px 10px 0 0;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+
+    .header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+
+    .task-count {
+        background: rgba(255, 255, 255, 0.25);
+        padding: 0.125rem 0.5rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+    }
+
+    /* Status Colors */
+    .status-todo {
+        background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+        color: white;
+    }
+
+    .status-progress {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        color: white;
+    }
+
+    .status-review {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+    }
+
+    .status-done {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+    }
+
+    .column-body {
+        flex: 1;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-top: none;
+        border-radius: 0 0 10px 10px;
+        padding: 0.75rem;
+        min-height: 400px;
+    }
+
+    /* Task Card */
+    .task-card {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-left: 3px solid transparent;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .task-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        transform: translateY(-1px);
+    }
+
+    .task-card.priority-low { border-left-color: #94a3b8; }
+    .task-card.priority-medium { border-left-color: #6366f1; }
+    .task-card.priority-high { border-left-color: #f59e0b; }
+    .task-card.priority-critical { border-left-color: #ef4444; }
+
+    .card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.625rem;
+    }
+
+    .priority-indicator {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .priority-indicator.priority-low { background: #f1f5f9; color: #64748b; }
+    .priority-indicator.priority-medium { background: #e0e7ff; color: #4338ca; }
+    .priority-indicator.priority-high { background: #fef3c7; color: #d97706; }
+    .priority-indicator.priority-critical { background: #fee2e2; color: #dc2626; }
+
+    .due-badge {
+        font-size: 0.7rem;
+        color: #64748b;
+    }
+
+    .due-badge.overdue {
+        color: #ef4444;
+        font-weight: 600;
+    }
+
+    .task-title {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #1e293b;
+        line-height: 1.4;
+    }
+
+    .task-desc {
+        margin: 0;
+        font-size: 0.8rem;
+        color: #64748b;
+        line-height: 1.5;
+    }
+
+    .card-footer {
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #f1f5f9;
+    }
+
+    .created-date {
+        font-size: 0.7rem;
+        color: #94a3b8;
+    }
+
+    .column-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100px;
+        color: #94a3b8;
+        font-size: 0.875rem;
+        border: 2px dashed #e2e8f0;
+        border-radius: 8px;
+    }
+
+    /* States */
+    .loading-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem;
+        color: #64748b;
+    }
+
+    .spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid #e2e8f0;
+        border-top-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-bottom: 1rem;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .empty-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+
+    .empty-state h3 {
+        margin: 0 0 0.5rem 0;
+        color: #1e293b;
+    }
+
+    .empty-state p {
+        color: #64748b;
+        margin-bottom: 1.5rem;
+    }
+
+    .alert {
+        padding: 1rem 1.25rem;
+        border-radius: 10px;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+        color: #b91c1c;
+        border: 1px solid #fecaca;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.25rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    @@media (max-width: 1024px) {
+        .kanban-board {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+
+    @@media (max-width: 640px) {
+        .kanban-board {
+            grid-template-columns: 1fr;
+        }
+
+        .filters-bar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-stats {
+            margin-left: 0;
+            margin-top: 0.5rem;
+        }
+    }
+</style>

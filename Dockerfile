@@ -2,17 +2,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy solution and project files
-COPY ProjectManagementSystem.sln .
+# Copy project files for restore
 COPY src/ProjectManagementSystem.Domain/ProjectManagementSystem.Domain.csproj src/ProjectManagementSystem.Domain/
 COPY src/ProjectManagementSystem.Application/ProjectManagementSystem.Application.csproj src/ProjectManagementSystem.Application/
 COPY src/ProjectManagementSystem.Infrastructure/ProjectManagementSystem.Infrastructure.csproj src/ProjectManagementSystem.Infrastructure/
 COPY src/ProjectManagementSystem.API/ProjectManagementSystem.API.csproj src/ProjectManagementSystem.API/
 
-# Restore dependencies
+# Restore dependencies for API project only
+WORKDIR /src/src/ProjectManagementSystem.API
 RUN dotnet restore
 
 # Copy all source files
+WORKDIR /src
 COPY src/ProjectManagementSystem.Domain/ src/ProjectManagementSystem.Domain/
 COPY src/ProjectManagementSystem.Application/ src/ProjectManagementSystem.Application/
 COPY src/ProjectManagementSystem.Infrastructure/ src/ProjectManagementSystem.Infrastructure/
@@ -24,6 +25,7 @@ RUN dotnet build -c Release -o /app/build
 
 # Publish the application
 FROM build AS publish
+WORKDIR /src/src/ProjectManagementSystem.API
 RUN dotnet publish -c Release -o /app/publish
 
 # Use the official .NET 8.0 runtime image for running
@@ -38,7 +40,6 @@ COPY --from=publish /app/publish .
 
 # Expose port
 EXPOSE 8080
-EXPOSE 8081
 
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:8080
@@ -46,4 +47,3 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Run the application
 ENTRYPOINT ["dotnet", "ProjectManagementSystem.API.dll"]
-

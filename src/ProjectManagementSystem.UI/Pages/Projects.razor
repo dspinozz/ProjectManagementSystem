@@ -1,0 +1,468 @@
+@page "/projects"
+@using ProjectManagementSystem.UI.Services
+@using ProjectManagementSystem.UI.Models
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IProjectService ProjectService
+@inject IWorkspaceService WorkspaceService
+
+<PageTitle>Projects - Project Management System</PageTitle>
+
+<div class="projects-container">
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success">@successMessage</div>
+    }
+    <div class="header">
+        <h1>Projects</h1>
+        <div class="header-actions">
+            <input type="text" @bind="searchTerm" @bind:event="oninput" @bind:after="ApplyFilters" placeholder="Search projects..." class="search-input" />
+            <button class="btn btn-primary" @onclick="ShowCreateModal">+ New Project</button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading">Loading projects...</div>
+    }
+    else if (filteredProjects.Any())
+    {
+        <div class="projects-grid">
+            @foreach (var project in paginatedProjects)
+            {
+                <div class="project-card">
+                    <div class="card-header">
+                        <div class="project-status status-@project.Status">@GetStatusText(project.Status)</div>
+                        <div class="card-actions">
+                            <button class="btn-icon" title="Edit" @onclick="() => ShowEditModal(project)" @onclick:stopPropagation="true">✏️</button>
+                            <button class="btn-icon btn-danger" title="Delete" @onclick="() => ShowDeleteConfirm(project)" @onclick:stopPropagation="true">🗑️</button>
+                        </div>
+                    </div>
+                    <div class="card-body" @onclick="() => NavigateToProject(project.Id)">
+                        <h3>@project.Name</h3>
+                        @if (!string.IsNullOrEmpty(project.Description))
+                        {
+                            <p class="description">@TruncateText(project.Description, 100)</p>
+                        }
+                        <div class="project-meta">
+                            <span class="date">Created: @project.CreatedAt.ToString("MMM dd, yyyy")</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (totalPages > 1)
+        {
+            <div class="pagination">
+                <button class="btn" @onclick="PreviousPage" disabled="@(currentPage == 1)">Previous</button>
+                <span>Page @currentPage of @totalPages</span>
+                <button class="btn" @onclick="NextPage" disabled="@(currentPage == totalPages)">Next</button>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <h3>No projects yet</h3>
+            <p>Create your first project to get started.</p>
+            <button class="btn btn-primary" @onclick="ShowCreateModal">Create Your First Project</button>
+        </div>
+    }
+</div>
+
+@* Create Modal *@
+@if (showCreateModal)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Create New Project</h2>
+            
+            @if (workspaces.Count == 0)
+            {
+                <div class="alert alert-warning">
+                    <strong>No workspaces available.</strong> 
+                    <p>You need to create a workspace first.</p>
+                    <button class="btn btn-secondary" @onclick="GoToWorkspaces">Go to Workspaces</button>
+                </div>
+            }
+            else
+            {
+                <EditForm Model="@newProject" OnValidSubmit="@HandleCreateProject">
+                    <DataAnnotationsValidator />
+                    <div class="form-group">
+                        <label>Project Name *</label>
+                        <InputText @bind-Value="newProject.Name" class="form-control" placeholder="Enter project name" />
+                        <ValidationMessage For="@(() => newProject.Name)" />
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <InputTextArea @bind-Value="newProject.Description" class="form-control" rows="3" />
+                    </div>
+                    <div class="form-group">
+                        <label>Workspace *</label>
+                        <InputSelect @bind-Value="newProject.WorkspaceId" class="form-control">
+                            <option value="">-- Select Workspace --</option>
+                            @foreach (var ws in workspaces)
+                            {
+                                <option value="@ws.Id">@ws.Name</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => newProject.WorkspaceId)" />
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <InputSelect @bind-Value="newProject.Status" class="form-control">
+                            <option value="0">Planning</option>
+                            <option value="1">In Progress</option>
+                            <option value="2">On Hold</option>
+                            <option value="3">Completed</option>
+                        </InputSelect>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@isSaving">@(isSaving ? "Creating..." : "Create")</button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+}
+
+@* Edit Modal *@
+@if (showEditModal && editProject != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h2>Edit Project</h2>
+            <EditForm Model="@editProject" OnValidSubmit="@HandleEditProject">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Project Name *</label>
+                    <InputText @bind-Value="editProject.Name" class="form-control" />
+                    <ValidationMessage For="@(() => editProject.Name)" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <InputTextArea @bind-Value="editProject.Description" class="form-control" rows="3" />
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <InputSelect @bind-Value="editProject.Status" class="form-control">
+                        <option value="0">Planning</option>
+                        <option value="1">In Progress</option>
+                        <option value="2">On Hold</option>
+                        <option value="3">Completed</option>
+                        <option value="4">Cancelled</option>
+                    </InputSelect>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isSaving">@(isSaving ? "Saving..." : "Save Changes")</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (showDeleteModal && projectToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal-content modal-small" @onclick:stopPropagation="true">
+            <h2>Delete Project</h2>
+            <p>Are you sure you want to delete <strong>@projectToDelete.Name</strong>?</p>
+            <p class="text-danger">This action cannot be undone. All tasks and files in this project will be deleted.</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CloseModals">Cancel</button>
+                <button class="btn btn-danger" @onclick="HandleDeleteProject" disabled="@isSaving">@(isSaving ? "Deleting..." : "Delete")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Inject] private IAuthService AuthService { get; set; } = null!;
+    [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = null!;
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+    
+    private List<ProjectDto> projects = new();
+    private List<ProjectDto> filteredProjects = new();
+    private List<ProjectDto> paginatedProjects = new();
+    private List<WorkspaceDto> workspaces = new();
+    private bool isLoading = true;
+    private string searchTerm = string.Empty;
+    private int currentPage = 1;
+    private const int pageSize = 12;
+    private int totalPages = 1;
+
+    // Modals
+    private bool showCreateModal = false;
+    private bool showEditModal = false;
+    private bool showDeleteModal = false;
+    private bool isSaving = false;
+    
+    private CreateProjectRequest newProject = new();
+    private UpdateProjectRequest? editProject;
+    private string? editProjectId;
+    private ProjectDto? projectToDelete;
+    
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+        await LoadWorkspaces();
+    }
+
+    private async Task LoadProjects()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            projects = await ProjectService.GetProjectsAsync();
+            ApplyFilters();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            errorMessage = ex.Message;
+            await HandleUnauthorized();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load projects: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadWorkspaces()
+    {
+        try { workspaces = await WorkspaceService.GetWorkspacesAsync(); }
+        catch { workspaces = new(); }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredProjects = projects;
+        
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            filteredProjects = filteredProjects
+                .Where(p => p.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                          (p.Description?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+        }
+
+        totalPages = Math.Max(1, (int)Math.Ceiling(filteredProjects.Count / (double)pageSize));
+        currentPage = Math.Max(1, Math.Min(currentPage, totalPages));
+        
+        paginatedProjects = filteredProjects
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+    }
+
+    private async Task HandleUnauthorized()
+    {
+        await AuthService.LogoutAsync();
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+            customProvider.NotifyUserLogout();
+        Navigation.NavigateTo("/login");
+    }
+
+    private void NavigateToProject(string projectId) => Navigation.NavigateTo($"/projects/{projectId}");
+    private void GoToWorkspaces() => Navigation.NavigateTo("/workspaces");
+
+    // Create
+    private void ShowCreateModal()
+    {
+        newProject = new CreateProjectRequest { Status = 0 };
+        showCreateModal = true;
+    }
+
+    private async Task HandleCreateProject()
+    {
+        isSaving = true;
+        errorMessage = null;
+        try
+        {
+            var success = await ProjectService.CreateProjectAsync(newProject);
+            if (success)
+            {
+                successMessage = "Project created successfully!";
+                await LoadProjects();
+                CloseModals();
+            }
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    // Edit
+    private void ShowEditModal(ProjectDto project)
+    {
+        editProjectId = project.Id;
+        editProject = new UpdateProjectRequest
+        {
+            Name = project.Name,
+            Description = project.Description,
+            Status = project.Status
+        };
+        showEditModal = true;
+    }
+
+    private async Task HandleEditProject()
+    {
+        if (editProject == null || editProjectId == null) return;
+        
+        isSaving = true;
+        errorMessage = null;
+        try
+        {
+            var success = await ProjectService.UpdateProjectAsync(editProjectId, editProject);
+            if (success)
+            {
+                successMessage = "Project updated successfully!";
+                await LoadProjects();
+                CloseModals();
+            }
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    // Delete
+    private void ShowDeleteConfirm(ProjectDto project)
+    {
+        projectToDelete = project;
+        showDeleteModal = true;
+    }
+
+    private async Task HandleDeleteProject()
+    {
+        if (projectToDelete == null) return;
+        
+        isSaving = true;
+        errorMessage = null;
+        try
+        {
+            var success = await ProjectService.DeleteProjectAsync(projectToDelete.Id);
+            if (success)
+            {
+                successMessage = "Project deleted.";
+                await LoadProjects();
+                CloseModals();
+            }
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private void CloseModals()
+    {
+        showCreateModal = false;
+        showEditModal = false;
+        showDeleteModal = false;
+        editProject = null;
+        projectToDelete = null;
+    }
+
+    private void NextPage() { if (currentPage < totalPages) { currentPage++; ApplyFilters(); } }
+    private void PreviousPage() { if (currentPage > 1) { currentPage--; ApplyFilters(); } }
+
+    private string GetStatusText(int status) => status switch
+    {
+        0 => "Planning", 1 => "In Progress", 2 => "On Hold", 3 => "Completed", 4 => "Cancelled", _ => "Unknown"
+    };
+
+    private string TruncateText(string text, int max) => 
+        string.IsNullOrEmpty(text) || text.Length <= max ? text : text.Substring(0, max) + "...";
+}
+
+<style>
+    .projects-container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+    .header h1 { margin: 0; color: #1f2937; }
+    .header-actions { display: flex; gap: 1rem; align-items: center; }
+    .search-input { padding: 0.75rem 1rem; border: 1px solid #d1d5db; border-radius: 8px; width: 280px; }
+    .search-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+
+    .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+
+    .project-card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; transition: all 0.2s ease; }
+    .project-card:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1); border-color: #6366f1; }
+
+    .card-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem 0; }
+    .card-actions { display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.2s; }
+    .project-card:hover .card-actions { opacity: 1; }
+
+    .btn-icon { background: none; border: none; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 1rem; transition: background 0.2s; }
+    .btn-icon:hover { background: #f3f4f6; }
+    .btn-icon.btn-danger:hover { background: #fee2e2; }
+
+    .card-body { padding: 0.75rem 1.25rem 1.25rem; cursor: pointer; }
+    .card-body h3 { margin: 0.5rem 0; color: #1f2937; font-size: 1.1rem; }
+    .card-body .description { color: #6b7280; margin: 0.5rem 0; font-size: 0.9rem; line-height: 1.5; }
+
+    .project-status { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .status-0 { background: #e5e7eb; color: #374151; }
+    .status-1 { background: #dbeafe; color: #1d4ed8; }
+    .status-2 { background: #fef3c7; color: #d97706; }
+    .status-3 { background: #d1fae5; color: #059669; }
+    .status-4 { background: #fee2e2; color: #dc2626; }
+
+    .project-meta { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #f3f4f6; font-size: 0.8rem; color: #9ca3af; }
+
+    .pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 2rem; }
+
+    .empty-state { text-align: center; padding: 4rem 2rem; color: #6b7280; background: white; border-radius: 12px; border: 2px dashed #e5e7eb; }
+    .empty-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .empty-state h3 { margin: 0 0 0.5rem 0; color: #374151; }
+
+    .loading { text-align: center; padding: 3rem; color: #6b7280; }
+
+    .alert { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .alert-danger { background: #fee2e2; color: #dc2626; }
+    .alert-success { background: #d1fae5; color: #059669; }
+    .alert-warning { background: #fef3c7; color: #92400e; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 1rem; }
+    .modal-content { background: white; padding: 2rem; border-radius: 16px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+    .modal-content.modal-small { max-width: 400px; }
+    .modal-content h2 { margin-top: 0; margin-bottom: 1.5rem; color: #1f2937; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; }
+
+    .text-danger { color: #dc2626; font-size: 0.9rem; }
+
+    .btn { padding: 0.75rem 1.25rem; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: #374151; }
+    .form-control { width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.95rem; box-sizing: border-box; }
+    .form-control:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+    .validation-message { color: #dc2626; font-size: 0.8rem; margin-top: 0.25rem; }
+
+    @@media (max-width: 640px) {
+        .header { flex-direction: column; align-items: stretch; }
+        .header-actions { flex-direction: column; }
+        .search-input { width: 100%; }
+        .card-actions { opacity: 1; }
+    }
+</style>

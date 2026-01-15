@@ -28,11 +28,17 @@ public class OrganizationsController : ControllerBase
 
     [HttpGet]
     [Authorize(Policy = "TeamMemberOrAbove")]
-    public async Task<ActionResult<IEnumerable<Organization>>> GetOrganizations()
+    public async Task<ActionResult<IEnumerable<object>>> GetOrganizations()
     {
         var organizations = await _context.Organizations
-            .Include(o => o.Workspaces)
-            .ToListAsync();
+            .Select(o => new {
+                o.Id,
+                o.Name,
+                o.Description,
+                o.CreatedAt,
+                o.UpdatedAt,
+                WorkspaceCount = o.Workspaces.Count
+            }).ToListAsync();
         return Ok(organizations);
     }
 

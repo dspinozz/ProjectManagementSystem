@@ -9,6 +9,7 @@ namespace ProjectManagementSystem.Application.Services;
 public interface ITaskService
 {
     System.Threading.Tasks.Task<TaskEntity?> GetByIdAsync(Guid id);
+    System.Threading.Tasks.Task<IEnumerable<TaskEntity>> GetAllAsync(Guid? projectId = null);
     System.Threading.Tasks.Task<IEnumerable<TaskEntity>> GetByProjectIdAsync(Guid projectId);
     System.Threading.Tasks.Task<TaskEntity> CreateAsync(TaskEntity task, string userId);
     System.Threading.Tasks.Task<TaskEntity> UpdateAsync(TaskEntity task, string userId);
@@ -37,6 +38,21 @@ public class TaskService : ITaskService
             .Include(t => t.Project)
             .Include(t => t.AssignedTo)
             .FirstOrDefaultAsync(t => t.Id == id);
+    }
+
+    public async System.Threading.Tasks.Task<IEnumerable<TaskEntity>> GetAllAsync(Guid? projectId = null)
+    {
+        var query = _context.Tasks
+            .Include(t => t.Project)
+            .Include(t => t.AssignedTo)
+            .AsQueryable();
+        
+        if (projectId.HasValue)
+        {
+            query = query.Where(t => t.ProjectId == projectId.Value);
+        }
+        
+        return await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
     }
 
     public async System.Threading.Tasks.Task<IEnumerable<TaskEntity>> GetByProjectIdAsync(Guid projectId)

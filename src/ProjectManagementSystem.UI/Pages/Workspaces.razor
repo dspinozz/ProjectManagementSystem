@@ -1,0 +1,230 @@
+@page "/workspaces"
+@using ProjectManagementSystem.UI.Services
+@using ProjectManagementSystem.UI.Models
+@attribute [Authorize]
+
+<PageTitle>Workspaces - Project Management System</PageTitle>
+
+<div class="page-container">
+    <div class="page-header">
+        <h1>Workspaces</h1>
+        <AuthorizeView Roles="Admin,ProjectManager">
+            <Authorized>
+                <button class="btn btn-primary" @onclick="OpenCreateModal">
+                    <span class="oi oi-plus"></span> New Workspace
+                </button>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success">@successMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="loading">Loading workspaces...</div>
+    }
+    else if (workspaces.Count == 0)
+    {
+        <div class="empty-state">
+            <p>No workspaces found. Create your first workspace to get started.</p>
+        </div>
+    }
+    else
+    {
+        <div class="data-grid">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Organization</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var workspace in workspaces)
+                    {
+                        <tr>
+                            <td><strong>@workspace.Name</strong></td>
+                            <td>@(workspace.Description ?? "—")</td>
+                            <td>@(workspace.OrganizationName ?? workspace.OrganizationId)</td>
+                            <td>@workspace.CreatedAt.ToString("MMM dd, yyyy")</td>
+                            <td>
+                                <button class="btn btn-sm btn-secondary" @onclick="() => ViewProjects(workspace.Id)">Projects</button>
+                                <AuthorizeView Roles="Admin">
+                                    <Authorized>
+                                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteWorkspace(workspace.Id)">Delete</button>
+                                    </Authorized>
+                                </AuthorizeView>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (showCreateModal)
+{
+    <div class="modal-overlay" @onclick="CloseCreateModal">
+        <div class="modal-content" @onclick:stopPropagation>
+            <h3>Create Workspace</h3>
+            <EditForm Model="@newWorkspace" OnValidSubmit="@HandleCreateWorkspace">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Name *</label>
+                    <InputText @bind-Value="newWorkspace.Name" class="form-control" />
+                    <ValidationMessage For="@(() => newWorkspace.Name)" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <InputTextArea @bind-Value="newWorkspace.Description" class="form-control" rows="3" />
+                </div>
+                <div class="form-group">
+                    <label>Organization *</label>
+                    <InputSelect @bind-Value="newWorkspace.OrganizationId" class="form-control">
+                        <option value="">Select Organization</option>
+                        @foreach (var org in organizations)
+                        {
+                            <option value="@org.Id">@org.Name</option>
+                        }
+                    </InputSelect>
+                    <ValidationMessage For="@(() => newWorkspace.OrganizationId)" />
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseCreateModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isCreating">@(isCreating ? "Creating..." : "Create")</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    [Inject] private IWorkspaceService WorkspaceService { get; set; } = null!;
+    [Inject] private IOrganizationService OrganizationService { get; set; } = null!;
+    [Inject] private NavigationManager Navigation { get; set; } = null!;
+
+    private List<WorkspaceDto> workspaces = new();
+    private List<OrganizationDto> organizations = new();
+    private bool isLoading = true;
+    private bool showCreateModal = false;
+    private bool isCreating = false;
+    private CreateWorkspaceRequest newWorkspace = new();
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            workspaces = await WorkspaceService.GetWorkspacesAsync();
+            organizations = await OrganizationService.GetOrganizationsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        newWorkspace = new CreateWorkspaceRequest();
+        showCreateModal = true;
+    }
+
+    private void CloseCreateModal()
+    {
+        showCreateModal = false;
+    }
+
+    private async Task HandleCreateWorkspace()
+    {
+        isCreating = true;
+        errorMessage = null;
+        try
+        {
+            var success = await WorkspaceService.CreateWorkspaceAsync(newWorkspace);
+            if (success)
+            {
+                successMessage = "Workspace created successfully!";
+                await LoadData();
+                CloseCreateModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task DeleteWorkspace(string id)
+    {
+        try
+        {
+            await WorkspaceService.DeleteWorkspaceAsync(id);
+            successMessage = "Workspace deleted.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void ViewProjects(string workspaceId)
+    {
+        Navigation.NavigateTo($"/projects?workspaceId={workspaceId}");
+    }
+}
+
+<style>
+    .page-container { padding: 2rem; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .page-header h1 { margin: 0; color: #1a1a2e; }
+    .data-grid { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+    .data-grid table { width: 100%; border-collapse: collapse; }
+    .data-grid th, .data-grid td { padding: 1rem; text-align: left; border-bottom: 1px solid #eee; }
+    .data-grid th { background: #f8f9fa; font-weight: 600; color: #374151; }
+    .data-grid tr:hover { background: #f8f9fa; }
+    .empty-state { text-align: center; padding: 3rem; color: #6b7280; }
+    .loading { text-align: center; padding: 2rem; }
+    .alert { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .alert-danger { background: #fee; color: #c33; }
+    .alert-success { background: #efe; color: #363; }
+    .btn { padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #6366f1; color: white; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: white; padding: 2rem; border-radius: 12px; width: 100%; max-width: 500px; }
+    .modal-content h3 { margin-top: 0; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+    .form-control { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+    .modal-actions { display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; }
+</style>

@@ -1,0 +1,420 @@
+@page "/login"
+@using ProjectManagementSystem.UI.Services
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Login - Project Management System</PageTitle>
+
+<div class="login-container">
+    @* Video Background *@
+    <div class="video-background">
+        <video id="bgVideo" autoplay muted loop playsinline>
+            <source src="video/parallax-bg.webm" type="video/webm" />
+            <source src="video/parallax-bg.mp4" type="video/mp4" />
+        </video>
+        <div class="video-overlay"></div>
+    </div>
+
+    @* Fallback gradient (shows while video loads or for reduced-motion) *@
+    <div class="gradient-fallback"></div>
+
+    @* Ambient particles *@
+    <div class="particles">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+
+    <div class="login-card">
+        <div class="brand-icon">🚀</div>
+        <h2>Project Management</h2>
+        <h3>Sign in to your workspace</h3>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">@errorMessage</div>
+        }
+
+        <EditForm Model="@loginModel" OnValidSubmit="@HandleLogin">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label>Email</label>
+                <InputText @bind-Value="loginModel.Email" class="form-control" placeholder="you@example.com" />
+                <ValidationMessage For="@(() => loginModel.Email)" />
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <InputText type="password" @bind-Value="loginModel.Password" class="form-control" placeholder="••••••••" />
+                <ValidationMessage For="@(() => loginModel.Password)" />
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner"></span>
+                    <span>Signing in...</span>
+                }
+                else
+                {
+                    <span>Sign In</span>
+                }
+            </button>
+        </EditForm>
+
+        <div class="footer-text">
+            <span>Secure authentication powered by ASP.NET Core Identity</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginRequest loginModel = new();
+    private string? errorMessage;
+    private bool isLoading = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Set video playback speed to 0.1x for ultra-slow cinematic effect
+            await JSRuntime.InvokeVoidAsync("setVideoPlaybackSpeed", "bgVideo", 0.1);
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var success = await AuthService.LoginAsync(loginModel.Email, loginModel.Password);
+            if (success)
+            {
+                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                {
+                    customProvider.NotifyUserAuthentication();
+                }
+                Navigation.NavigateTo("/projects");
+            }
+            else
+            {
+                errorMessage = "Invalid email or password.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Login failed: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
+
+<style>
+    /* ========================================
+       PARALLAX VIDEO LOGIN - Night Countryside
+       ======================================== */
+
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        position: relative;
+        overflow: hidden;
+    }
+
+    /* Video Background */
+    .video-background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+    }
+
+    .video-background video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    /* Dark overlay for better text contrast */
+    .video-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+            135deg,
+            rgba(10, 10, 30, 0.7) 0%,
+            rgba(20, 20, 50, 0.5) 50%,
+            rgba(10, 15, 35, 0.7) 100%
+        );
+        pointer-events: none;
+    }
+
+    /* Gradient Fallback (behind video, shows if video fails) */
+    .gradient-fallback {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #0a0a1e 0%, #1a1a3e 30%, #0f1f3a 70%, #0a0a1e 100%);
+        z-index: -1;
+    }
+
+    /* Ambient floating particles */
+    .particles {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .particle {
+        position: absolute;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+        border-radius: 50%;
+        animation: float 20s infinite ease-in-out;
+    }
+
+    .particle:nth-child(1) { width: 4px; height: 4px; left: 10%; top: 20%; animation-delay: 0s; }
+    .particle:nth-child(2) { width: 6px; height: 6px; left: 25%; top: 60%; animation-delay: -4s; }
+    .particle:nth-child(3) { width: 3px; height: 3px; left: 70%; top: 30%; animation-delay: -8s; }
+    .particle:nth-child(4) { width: 5px; height: 5px; left: 85%; top: 70%; animation-delay: -12s; }
+    .particle:nth-child(5) { width: 4px; height: 4px; left: 50%; top: 85%; animation-delay: -16s; }
+
+    @@keyframes float {
+        0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+        25% { transform: translateY(-30px) translateX(10px); opacity: 0.6; }
+        50% { transform: translateY(-10px) translateX(-15px); opacity: 0.4; }
+        75% { transform: translateY(-40px) translateX(5px); opacity: 0.7; }
+    }
+
+    /* Login Card */
+    .login-card {
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        padding: 2.5rem;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        box-shadow: 
+            0 25px 50px -12px rgba(0, 0, 0, 0.5),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        width: 100%;
+        max-width: 400px;
+        position: relative;
+        z-index: 2;
+        animation: cardAppear 0.8s ease-out;
+    }
+
+    @@keyframes cardAppear {
+        from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .brand-icon {
+        text-align: center;
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+    }
+
+    .login-card h2 {
+        text-align: center;
+        margin-bottom: 0.25rem;
+        color: #ffffff;
+        font-size: 1.75rem;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    .login-card h3 {
+        text-align: center;
+        margin-bottom: 2rem;
+        color: rgba(255, 255, 255, 0.7);
+        font-weight: 400;
+        font-size: 0.95rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 12px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+        box-sizing: border-box;
+    }
+
+    .form-control::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.8);
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+    }
+
+    .btn {
+        width: 100%;
+        padding: 1rem;
+        border: none;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-top: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+        color: white;
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5);
+    }
+
+    .btn-primary:active:not(:disabled) {
+        transform: translateY(0);
+    }
+
+    .btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Loading spinner */
+    .spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .alert {
+        padding: 0.875rem 1rem;
+        border-radius: 10px;
+        margin-bottom: 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .alert-danger {
+        background: rgba(220, 38, 38, 0.2);
+        color: #fca5a5;
+        border: 1px solid rgba(220, 38, 38, 0.3);
+    }
+
+    .alert-danger::before {
+        content: '⚠️';
+    }
+
+    .validation-message {
+        color: #fca5a5;
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    .footer-text {
+        text-align: center;
+        margin-top: 1.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .footer-text span {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 0.75rem;
+    }
+
+    /* Reduced motion preference */
+    @@media (prefers-reduced-motion: reduce) {
+        .video-background video {
+            display: none;
+        }
+        
+        .gradient-fallback {
+            opacity: 1 !important;
+        }
+        
+        .particle {
+            animation: none;
+        }
+        
+        .login-card {
+            animation: none;
+        }
+    }
+
+    /* Mobile adjustments */
+    @@media (max-width: 480px) {
+        .login-card {
+            margin: 1rem;
+            padding: 2rem 1.5rem;
+        }
+        
+        .login-card h2 {
+            font-size: 1.5rem;
+        }
+    }
+</style>
